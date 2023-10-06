@@ -4,11 +4,11 @@
  *  ------------------------------------------------------------------------------------------
  */
 
-// stdafx.cpp : source file that includes just the standard includes
-// ImageProcessing.pch will be the pre-compiled header
-// stdafx.obj will contain the pre-compiled type information
+#pragma once
 
-#include "stdafx.h"
+// Including SDKDDKVer.h defines the highest available Windows platform.
 
-// TODO: reference any additional headers you need in STDAFX.H
-// and not in this file
+// If you wish to build your application for a previous Windows platform, include WinSDKVer.h and
+// set the _WIN32_WINNT macro to the platform you wish to support before including SDKDDKVer.h.
+
+#include <SDKDDKVer.h>
