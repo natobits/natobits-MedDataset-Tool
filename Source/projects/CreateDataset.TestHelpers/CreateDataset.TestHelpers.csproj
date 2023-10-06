@@ -42,4 +42,59 @@
       <HintPath>..\..\thirdparty\packages\Newtonsoft.Json.12.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="nunit.framework, Version=3.12.0.0, Culture=neutral, PublicKeyToken=2638cd05610744eb, processorArchitecture=MSIL">
-      <HintPath>..\..\thirdparty\pac
+      <HintPath>..\..\thirdparty\packages\NUnit.3.12.0\lib\net45\nunit.framework.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.ValueTuple, Version=4.0.3.0, Culture=neutral, PublicKeyToken=cc7b13ffcd2ddd51, processorArchitecture=MSIL">
+      <HintPath>..\..\thirdparty\packages\System.ValueTuple.4.5.0\lib\net461\System.ValueTuple.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Xml.Linq" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="Microsoft.CSharp" />
+    <Reference Include="System.Data" />
+    <Reference Include="System.Xml" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="TestHelpers.cs" />
+    <Compile Include="VolumeAssert.cs" />
+    <Compile Include="Properties\AssemblyInfo.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\InnerEye.CreateDataset.Core\InnerEye.CreateDataset.Core.csproj">
+      <Project>{f782854e-6b36-42a5-9861-fe4e7867bb41}</Project>
+      <Name>InnerEye.CreateDataset.Core</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\InnerEye.CreateDataset.Common\InnerEye.CreateDataset.Common.csproj">
+      <Project>{8db64d15-3241-44d8-805d-cdfd7a5623a8}</Project>
+      <Name>InnerEye.CreateDataset.Common</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\InnerEye.CreateDataset.Math\InnerEye.CreateDataset.Math.csproj">
+      <Project>{d8e303da-8713-411d-a909-fe507f39a0ae}</Project>
+      <Name>InnerEye.CreateDataset.Math</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\InnerEye.CreateDataset.Volumes\InnerEye.CreateDataset.Volumes.csproj">
+      <Project>{12416238-4311-4d15-a2d9-4f3ed7771244}</Project>
+      <Name>InnerEye.CreateDataset.Volumes</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\MedLib.IO\MedLib.IO.csproj">
+      <Project>{97046b3e-6de6-4a84-946d-17ba956411dd}</Project>
+      <Name>MedLib.IO</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\InnerEye.CreateDataset.Data\InnerEye.CreateDataset.Data.fsproj">
+      <Project>{1b389782-77ee-471d-ab4c-f5a10a8b2ffe}</Project>
+      <Name>InnerEye.CreateDataset.Data</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="app.config" />
+    <None Include="packages.config" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="EnsureNuGetPackageBuildImports" BeforeTargets="PrepareForBuild">
+    <PropertyGroup>
+      <ErrorText>This project references NuGet package(s) that are missing on this computer. Use NuGet Package Restore to download them.  For more information, see http://go.microsoft.com/fwlink/?LinkID=322105. The missing file is {0}.</ErrorText>
+    </PropertyGroup>
+    <Error Condition="!Exists('..\..\thirdparty\packages\NUnit.3.12.0\build\NUnit.props')" Text="$([System.String]::Format('$(ErrorText)', '..\..\thirdparty\packages\NUnit.3.12.0\build\NUnit.props'))" />
+  </Target>
+</Project>
