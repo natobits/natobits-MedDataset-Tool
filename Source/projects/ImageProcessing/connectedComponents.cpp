@@ -35,4 +35,19 @@ namespace createdataset
 
 
   template<>
-  void
+  void printImage<unsigned char>(int width, int height, void* buffer, int stride)
+  {
+    for (int v = 0; v < height; v++)
+    {
+      unsigned char* p = (unsigned char*)(buffer)+v*stride;
+      for (int u = 0; u < width; u++)
+      {
+        std::cout << (int)p[0];
+        if (u != width - 1)
+          std::cout << "\t";
+        p++;
+      }
+      std::cout << std::endl;
+    }
+  }
+}
