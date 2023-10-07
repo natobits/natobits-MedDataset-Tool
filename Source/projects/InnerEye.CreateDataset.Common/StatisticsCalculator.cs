@@ -137,4 +137,157 @@ namespace InnerEye.CreateDataset.Common.Models
             // extremeValues contains the coordinates of each region, plus the "compactness" and "sphericality" values
             // of the structure.
             List<ExtremeInfo> extremeValues = binariesAndRegions.Select(CalculateExtremes).ToList();
-            var result = new Li
+            var result = new List<StatisticValue>();
+            var dimInfoList = ExtractDimensionData(binaries);
+            if (dimInfoList == null)
+            {
+                return result;
+            }
+            var intensityLists = binariesAndRegions
+                .Select(pair => GetIntensityList(pair.Item1, pair.Item2, image))
+                .ToList();
+            var coordinateHistograms =
+                binariesAndRegions.Select(pair => CoordinateHistograms.Create(pair.Item1, pair.Item2)).ToList();
+            if (image != null && !isGtAndSegmentation)
+            {
+                result.AddRange(DeriveSpaceIntensityStatistics(binaries, image));
+            }
+            // We don't want space offset statistics at all in restricted mode; and when we do want them,
+            // we only want them calculated once.
+            bool doneSpace = isGtAndSegmentation;
+            for (int i = 0; i < structureNames.Count; i++)
+            {
+                if (extremeValues[i] == null)
+                {
+                    continue;
+                }
+                string structure1 = structureNames[i];
+                var values1 = extremeValues[i];
+                if (i > 0 || !isGtAndSegmentation)
+                {
+                    result.AddRange(CalculateOffsetStatistics(isGtAndSegmentation, dimInfoList, doneSpace, structure1, values1));
+                }
+                doneSpace = true; // so space offset statistics are not calculated again.
+                if (intensityLists[i] != null)
+                {
+                    result.AddRange(CalculateIntensityMeanAndSd(image, binariesAndRegions, intensityLists, i, structure1));
+                }
+                if (image != null)
+                {
+                    var rocStatistic = CalculateBoundaryRoc(binaries, image, exactBoundaryRoc, regions, i, structure1);
+                    if (rocStatistic.Value >= 0)
+                    {
+                        result.Add(rocStatistic);
+                    }
+                }
+                if (i > 0 || !isGtAndSegmentation)
+                {
+                    // Compactness
+                    result.Add(new StatisticValue("Com", structure1, values1.compactness));
+                    // Sphericality
+                    result.Add(new StatisticValue("Sph", structure1, values1.sphericality));
+                }
+                // Step-up and step-down entropies, for spotting rectangles and cuboids
+                result.AddRange(GetStepEntropyStatistics(structure1, binariesAndRegions[i].Item1, binariesAndRegions[i].Item2));
+                // Relative offsets between structures in X, Y and Z dimensions; also relative intensity ROC values.
+                if (structureNames[i] == ExternalStructureName && !pairwiseExternal)
+                {
+                    continue;
+                }
+                for (int j = i + 1; j < structureNames.Count; j++)
+                {
+                    if (extremeValues[j] == null || (structureNames[j] == ExternalStructureName && !pairwiseExternal))
+                    {
+                        continue;
+                    }
+                    string structure2 = structureNames[j];
+                    var values2 = extremeValues[j];
+                    foreach (var dimInfo in dimInfoList)
+                    {
+                        // Distance between min/mid/max point of two structures in X, Y and Z dimensions.
+                        result.AddRange(StructurePairOffsetLines(dimInfo, values1, values2, structure1, structure2));
+                    }
+                    if (image != null)
+                    {
+                        var roc = IntensityRoc(intensityLists[i], intensityLists[j]);
+                        // Intensity ROC between inside of structure1 and structure2: if >0.5, then structure2 is brighter.
+                        if (roc >= 0)
+                        {
+                            result.Add(new StatisticValue("Irc", structure1, structure2, roc));
+                        }
+                    }
+                    var xyzRocValues = CoordinateRocValues(coordinateHistograms[i], coordinateHistograms[j]);
+                    result.AddRange(GetCoordinateRocStatistics(structure1, structure2, xyzRocValues));
+                }
+            }
+            return result;
+        }
+
+        private static void WriteTrace(string patient, string msg)
+        {
+            if (!string.IsNullOrEmpty(patient))
+            {
+                msg = $"{patient}: {msg}";
+            }
+            Trace.WriteLine(msg);
+        }
+
+        private static StatisticValue CalculateBoundaryRoc(List<Volume3D<byte>> binaries, Volume3D<short> image, bool exactBoundaryRoc, List<Region3D<int>> regions, int i, string structure1)
+        {
+            double roc = exactBoundaryRoc ?
+                GetExactBoundaryRoc(image, binaries[i], regions[i]) :
+                GetApproximateBoundaryRoc(image, binaries[i], regions[i]);
+            return new StatisticValue("Brc", structure1, roc);
+
+        }
+
+        private static List<StatisticValue> CalculateIntensityMeanAndSd(Volume3D<short> image, List<Tuple<Volume3D<byte>, Region3D<int>>> binariesAndRegions, List<List<short>> intensityLists, int i, string structure1)
+        {
+            // Mean and SD of intensity within the structure
+            var intensityMsd = IntensityMeanAndSd(intensityLists[i]);
+            // Can be null if the structure has no voxels or only one voxel.
+            var result1 = new List<StatisticValue>();
+            if (intensityMsd != null)
+            {
+                result1 = GetStructureIntensityStatistics(structure1, intensityMsd,
+                    GetCentroidStandardErrors(binariesAndRegions[i].Item1, binariesAndRegions[i].Item2, image));
+            }
+
+            return result1;
+        }
+
+        private static List<StatisticValue> CalculateOffsetStatistics(bool restricted, List<DimensionInformation> dimInfoList,
+            bool doneSpace, string structure1, ExtremeInfo values1)
+        {
+            var result = new List<StatisticValue>();
+            foreach (var dimInfo in dimInfoList)
+            {
+                // Once only for each dimension, add the "space" size itself.
+                if (!doneSpace)
+                {
+                    result.Add(new StatisticValue($"{dimInfo.dimName}sz", "space", dimInfo.sizeInMm));
+                }
+                result.AddRange(SingleStructureOffsetLines(dimInfo, values1, structure1, restricted));
+            }
+
+            return result;
+        }
+
+        private static List<StatisticValue> DeriveSpaceIntensityStatistics(List<Volume3D<byte>> binaries, Volume3D<short> image)
+        {
+            var intensityStats = GetSpaceIntensityStatistics(binaries, image);
+            return intensityStats;
+        }
+
+        /// <summary>
+        /// Returns a list of (up to) six "step entropy ratio" statistics. Statistic names are [XYZ][du]h: XYZ for the
+        /// dimension, du for down or up, and h for entropy. Taking Xuh ("X up entropy ratio") as an example: for each
+        /// value of x in the range covered by (non-zero values in) "binary", we count the number of times that
+        /// binary(x-1,y,z)==0 but binary(x,y,z)=1 (thus, a step "up" -- into the structure -- going from x-1 to x).
+        /// We take offsets outside the binary (e.g. x==0 so binary(x-1,y,z) is outside) as having a zero value.
+        /// This gives us a histogram of counts over all the values of x. The entropy ratio for this histogram is defined
+        /// as the ratio of its entropy to the maximum entropy possible for a histogram with that many x values. 
+        /// This ratio must be between 0 and 1; a value near 0 implies the histogram is very peaked, so there
+        /// may be a rectangle or cuboid with an edge at that x value, while a value near 1 implies a fairly even
+        /// histogram, which is not a cause for concern.
+   
