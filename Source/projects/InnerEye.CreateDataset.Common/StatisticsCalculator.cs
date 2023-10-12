@@ -290,4 +290,175 @@ namespace InnerEye.CreateDataset.Common.Models
         /// This ratio must be between 0 and 1; a value near 0 implies the histogram is very peaked, so there
         /// may be a rectangle or cuboid with an edge at that x value, while a value near 1 implies a fairly even
         /// histogram, which is not a cause for concern.
-   
+        ///    Similarly, "Xdh" is for steps down (binary(x,y,z)==1 but binary(x+1,y,z)==0), and analogously for Y and Z.
+        ///    Normally, we expect Xuh and Xdh to be fairly similar, but they could be different, e.g. in the case
+        /// of a structure shaped like a half sphere: if the flat base is pointing downwards, Zdh would be low but Zuh
+        /// would be in the usual range.
+        /// </summary>
+        /// <param name="structure"></param>
+        /// <param name="binary"></param>
+        /// <param name="region"></param>
+        /// <returns></returns>
+        private static List<StatisticValue> GetStepEntropyStatistics(string structure, Volume3D<byte> binary, Region3D<int> region)
+        {
+            var result = new List<StatisticValue>();
+            if (region.IsEmpty())
+            {
+                return result;
+            }
+            var xDownHist = new int[region.MaximumX - region.MinimumX + 1];
+            var xUpHist = new int[region.MaximumX - region.MinimumX + 1];
+            var yDownHist = new int[region.MaximumY - region.MinimumY + 1];
+            var yUpHist = new int[region.MaximumY - region.MinimumY + 1];
+            var zDownHist = new int[region.MaximumZ - region.MinimumZ + 1];
+            var zUpHist = new int[region.MaximumZ - region.MinimumZ + 1];
+            for (var xRel = 0; xRel <= region.MaximumX - region.MinimumX; xRel++)
+            {
+                var xAbs = xRel + region.MinimumX;
+                for (var yRel = 0; yRel <= region.MaximumY - region.MinimumY; yRel++)
+                {
+                    var yAbs = yRel + region.MinimumY;
+                    for (var zRel = 0; zRel <= region.MaximumZ - region.MinimumZ; zRel++)
+                    {
+                        var zAbs = zRel + region.MinimumZ;
+                        var index = binary.GetIndex(xAbs, yAbs, zAbs);
+                        if (binary[index] > 0)
+                        {
+                            if (xAbs == region.MaximumX || binary[index + 1] == 0)
+                            {
+                                xDownHist[xRel]++;
+                            }
+                            if (xAbs == region.MinimumX || binary[index - 1] == 0)
+                            {
+                                xUpHist[xRel]++;
+                            }
+                            if (yAbs == region.MaximumY || binary[index + binary.DimX] == 0)
+                            {
+                                yDownHist[yRel]++;
+                            }
+                            if (yAbs == region.MinimumY || binary[index - binary.DimX] == 0)
+                            {
+                                yUpHist[yRel]++;
+                            }
+                            if (zAbs == region.MaximumZ || binary[index + binary.DimXY] == 0)
+                            {
+                                zDownHist[zRel]++;
+                            }
+                            if (zAbs == region.MinimumZ || binary[index - binary.DimXY] == 0)
+                            {
+                                zUpHist[zRel]++;
+                            }
+                        }
+                    }
+                }
+            }
+            AddStepEntropyStatistic("Xdh", structure, xDownHist, result);
+            AddStepEntropyStatistic("Xuh", structure, xUpHist, result);
+            AddStepEntropyStatistic("Ydh", structure, yDownHist, result);
+            AddStepEntropyStatistic("Yuh", structure, yUpHist, result);
+            AddStepEntropyStatistic("Zdh", structure, zDownHist, result);
+            AddStepEntropyStatistic("Zuh", structure, zUpHist, result);
+            return result;
+        }
+
+        private static void AddStepEntropyStatistic(string stat, string structure, int[] hist, List<StatisticValue> result)
+        {
+            var ratio = EntropyRatio(hist);
+            if (ratio >= 0) // A negative value is produced when entropy ratio does not exist, e.g. only one slice
+            {
+                result.Add(new StatisticValue(stat, structure, ratio));
+            }
+        }
+        /// <summary>
+        /// Given a histogram of counts, returns the ratio between the entropy of the values in the histogram, and
+        /// the entropy it would have if it were totally uniform. This will be zero if all the counts are in one
+        /// bucket, and one if the histogram is uniform; otherwise, in between. If the histogram has only one (or no)
+        /// values, return -1, meaning "ignore this".
+        /// </summary>
+        /// <param name="hist"></param>
+        /// <returns></returns>
+        private static double EntropyRatio(int[] hist)
+        {
+            if (hist.Length < 2)
+            {
+                return -1;
+            }
+            double sumXLogX = 0;
+            int sumX = 0;
+            foreach (var count in hist)
+            {
+                if (count > 1)
+                {
+                    sumXLogX += count * Math.Log(count);
+                    sumX += count;
+                }
+            }
+            if (sumX == 0)
+            {
+                return -1;
+            }
+            var entropy = Math.Log(sumX) - sumXLogX / sumX;
+            var maxEntropy = Math.Log(hist.Length);
+            return entropy / maxEntropy;
+        }
+
+        // Holder for information specific to a given dimension of the image:
+        //   dimName: "X", "Y" or "Z"
+        //   sizeInMm: size of the whole image space in mm, in dimension dimName.
+        //   numberOfSlices: number of slices in the given dimension.
+        private struct DimensionInformation
+        {
+            public DimensionInformation(string dimName, double spacingInMm, int numberOfSlices)
+            {
+                this.dimName = dimName;
+                this.spacingInMm = spacingInMm;
+                this.numberOfSlices = numberOfSlices;
+                sizeInMm = spacingInMm * (numberOfSlices - 1);
+            }
+
+            public string dimName;
+            public double spacingInMm;
+            public int numberOfSlices;
+            public double sizeInMm;
+        }
+
+        private static List<DimensionInformation> ExtractDimensionData(List<Volume3D<byte>> binaries)
+        {
+            var example = binaries.FirstOrDefault(x => x != null);
+            if (example == null)
+            {
+                return null;
+            }
+            return new List<DimensionInformation>
+            {
+                new DimensionInformation("X", example.SpacingX, example.DimX),
+                new DimensionInformation("Y", example.SpacingY, example.DimY),
+                new DimensionInformation("Z", example.SpacingZ, example.DimZ)
+            };
+        }
+
+        private static List<StatisticValue> GetCoordinateRocStatistics(string structure1,
+            string structure2, RocTriple rocs)
+        {
+            if (rocs != null)
+            {
+                // Coordinate ROC values between structure1 and structure 2 in X, Y and Z dimensions: if
+                // >0.5, then structure2 has in general higher coordinate values in that dimension.
+                return new List<StatisticValue>()
+                {
+                    new StatisticValue("Xrc", structure1, structure2, rocs.XRoc),
+                    new StatisticValue("Yrc", structure1, structure2, rocs.YRoc),
+                    new StatisticValue("Zrc", structure1, structure2, rocs.ZRoc)
+                };
+            }
+            return new List<StatisticValue>();
+        }
+
+        private static List<StatisticValue> GetSpaceIntensityStatistics(List<Volume3D<byte>> binaries, Volume3D<short> image)
+        {
+            // Intensity of whole space
+            var spaceIntensityMsd = IntensityMeanAndSd(image.Array);
+            // Intensity of background voxels
+            var backgroundIntensityMsd = BackgroundIntensityMeanAndSd(image, binaries);
+            return new List<StatisticValue>
+         
