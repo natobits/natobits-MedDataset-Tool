@@ -461,4 +461,167 @@ namespace InnerEye.CreateDataset.Common.Models
             // Intensity of background voxels
             var backgroundIntensityMsd = BackgroundIntensityMeanAndSd(image, binaries);
             return new List<StatisticValue>
-         
+            {
+                new StatisticValue("Imu", "space", spaceIntensityMsd.Mean),
+                new StatisticValue("Isd", "space", spaceIntensityMsd.StandardDeviation),
+                new StatisticValue("Imu", "background", backgroundIntensityMsd.Mean),
+                new StatisticValue("Isd", "background", backgroundIntensityMsd.StandardDeviation)
+            };
+        }
+
+        public class MeanAndStandardDeviation
+        {
+            public double Mean;
+            public double StandardDeviation;
+            public MeanAndStandardDeviation(double mu, double sigma)
+            {
+                Mean = mu;
+                StandardDeviation = sigma;
+            }
+        }
+
+        private static List<StatisticValue> GetStructureIntensityStatistics(string structure1, MeanAndStandardDeviation intensityMsd,
+            StandardErrorsAtDistances seTuple)
+        {
+            var result = new List<StatisticValue>()
+            {
+                new StatisticValue("Imu", structure1, intensityMsd.Mean),
+                new StatisticValue("Isd", structure1, intensityMsd.StandardDeviation)
+            };
+            // Homogeneity A: cube edge half-length 3mm. Homogeneity for half-length L is defined as follows.
+            //   * Find each voxel at position (x,y,z) in the structure, such that all 27 voxels at positions
+            // (x', y', z'), where x' is in {x-L,x,x+L}, y' is in {y-L,y,y+L}, and z' is in {z-L,z,z+L},
+            // are also in the structure. (We round x', y', z' to the nearest integer).
+            //   * Define the predicted intensity at the centroid (x,y,z) to be the mean of the
+            // intensities at the other 26 points.
+            //   * Define the "error" at (x,y,z) to be the actual intensity minus predicted intensity.
+            //   * The mean standard error (MSE) is the square root of the mean of the squares of the errors
+            // over all voxels (x,y,z) satisfying the first condition.
+            //   * The homogeneity of the structure is then the MSE divided by the standard deviation of
+            // all the intensities in the structure. This will always be non-negative, and usually
+            // less than 1. A value close to zero means nearby voxels are highly correlated and so the
+            // structure is not very homogeneous. A value close to one means it is very homogeneous at the
+            // scale in question, i.e. swapping intensities at random between voxels in the structure would
+            // not make it look very different. A value greater than one means there is some kind of
+            // periodicity in the intensities with wavelength about 2L.
+            if (seTuple.At3mm >= 0)
+            {
+                result.Add(new StatisticValue("Hma", structure1, seTuple.At3mm / intensityMsd.StandardDeviation));
+            }
+            // Homogeneity B: cube edge half-length 6mm
+            if (seTuple.At6mm >= 0)
+            {
+                result.Add(new StatisticValue("Hmb", structure1, seTuple.At6mm / intensityMsd.StandardDeviation));
+            }
+            // Homogeneity P: square, one pixel each side, X and Y dimensions only
+            if (seTuple.At1px >= 0)
+            {
+                result.Add(new StatisticValue("Hmp", structure1, seTuple.At1px / intensityMsd.StandardDeviation));
+            }
+            return result;
+        }
+
+        class StandardErrorsAtDistances
+        {
+            public double At3mm;
+            public double At6mm;
+            public double At1px;
+            public StandardErrorsAtDistances(double at3mm, double at6mm, double at1px)
+            {
+                At3mm = at3mm;
+                At6mm = at6mm;
+                At1px = at1px;
+            }
+        }
+
+        /// <summary>
+        /// Result is structure with 3 elements:
+        ///   (1) Standard error of each intensity value wrt mean of its 26 neighbours at (approx) 3mm distance
+        ///   (2) Ditto, but 6mm distance
+        ///   (3) Ditto, but 1 pixel distance, and calculated only in x and y planes (8 neighbours), not between slices.
+        /// </summary>
+        /// <param name="binary"></param>
+        /// <param name="region"></param>
+        /// <param name="image"></param>
+        /// <returns></returns>
+        private static StandardErrorsAtDistances GetCentroidStandardErrors(Volume3D<byte> binary, Region3D<int> region, Volume3D<short> image)
+        {
+            double sumA = 0.0;
+            double sumB = 0.0;
+            double sumP = 0.0;
+            int nA = 0;
+            int nB = 0;
+            int nP = 0;
+            int dxA = (int)Math.Round(3 / image.SpacingX);
+            int dxB = (int)Math.Round(6 / image.SpacingX);
+            int dyA = (int)Math.Round(3 / image.SpacingY);
+            int dyB = (int)Math.Round(6 / image.SpacingY);
+            int dzA = (int)Math.Round(3 / image.SpacingZ);
+            int dzB = (int)Math.Round(6 / image.SpacingZ);
+            for (int k = region.MinimumZ; k <= region.MaximumZ; k++)
+            {
+                for (int j = region.MinimumY + 1; j <= region.MaximumY - 1; j++)
+                {
+                    for (int i = region.MinimumX + 1; i <= region.MaximumX - 1; i++)
+                    {
+                        double? discrepP = GetDiscrepancy(binary, image, 1, 1, 0, i, j, k);
+                        if (discrepP != null)
+                        {
+                            sumP += (double)discrepP * (double)discrepP;
+                            nP++;
+                        }
+                        if (k - dzA < region.MinimumZ || k + dzA > region.MaximumZ ||
+                            j - dyA < region.MinimumY || j + dyA > region.MaximumY ||
+                            i - dxA < region.MinimumX || i + dxA > region.MaximumX)
+                        {
+                            continue;
+                        }
+                        double? discrepA = GetDiscrepancy(binary, image, dxA, dyA, dzA, i, j, k);
+                        if (discrepA != null)
+                        {
+                            sumA += (double)discrepA * (double)discrepA;
+                            nA++;
+                        }
+                        if (k - dzB < region.MinimumZ || k + dzB > region.MaximumZ ||
+                            j - dyB < region.MinimumY || j + dyB > region.MaximumY ||
+                            i - dxB < region.MinimumX || i + dxB > region.MaximumX)
+                        {
+                            continue;
+                        }
+                        double? discrepB = GetDiscrepancy(binary, image, dxB, dyB, dzB, i, j, k);
+                        if (discrepB != null)
+                        {
+                            sumB += (double)discrepB * (double)discrepB;
+                            nB++;
+                        }
+                    }
+                }
+            }
+            return new StandardErrorsAtDistances(
+                nA > 0 ? Math.Sqrt(sumA / nA) : -1.0,
+                nB > 0 ? Math.Sqrt(sumB / nB) : -1.0,
+                nP > 0 ? Math.Sqrt(sumP / nP) : -1.0);
+        }
+
+        private static double? GetDiscrepancy(Volume3D<byte> binary, Volume3D<short> image,
+            int dx, int dy, int dz, int i, int j, int k)
+        {
+            double centralValue = image[binary.GetIndex(i, j, k)];
+            double sum = -centralValue;
+            var dz1 = dz > 0 ? dz : 1;
+            for (var kk = k - dz; kk <= k + dz; kk += dz1)
+            {
+                for (var jj = j - dy; jj <= j + dy; jj += dy)
+                {
+                    for (var ii = i - dx; ii <= i + dx; ii += dx)
+                    {
+                        var index = binary.GetIndex(ii, jj, kk);
+                        if (binary[index] == 0)
+                        {
+                            return null;
+                        }
+                        sum += image[index];
+                    }
+                }
+            }
+            var nP
