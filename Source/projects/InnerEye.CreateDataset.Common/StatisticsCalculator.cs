@@ -1148,3 +1148,131 @@ namespace InnerEye.CreateDataset.Common.Models
                 var n1 = pair.Item1;
                 var n2 = pair.Item2;
                 num += n2 * (cumul1 + 0.5 * n1);
+                cumul1 += n1;
+                cumul2 += n2;
+            }
+            return num / (((double)cumul1) * cumul2);
+        }
+
+        public static List<StatisticValue> BuildSizeStatistics(List<string> canonicalNames, int[,,] overlapCount,
+            int[,] missingLayerCount, int[,] topBottomCount, double[,,] flatness, double mm3)
+        {
+            var sizeLines = new List<StatisticValue>();
+            for (int u = 0; u < overlapCount.GetLength(1); u++)
+            {
+                var uname = canonicalNames[u];
+                var volumeInCubicCentimeters = 0.001 * mm3 * overlapCount[0, u, u];
+                sizeLines.Add(new StatisticValue("Vol", uname, volumeInCubicCentimeters));
+                if (overlapCount[0, u, u] == 0)
+                {
+                    continue; // structure u is missing, so don't report on volume related stats apart from the volume itself.
+                }
+                var dimNames = "XYZ";
+                for (int dimIndex = 0; dimIndex < 3; dimIndex++)
+                {
+                    var dimChar = dimNames[dimIndex];
+                    // Total number of voxels of this structure in top and bottom layers (for
+                    // spotting Intuitive "rectangle" artifacts).
+                    sizeLines.Add(new StatisticValue($"{dimChar}tb", uname, topBottomCount[dimIndex, u]));
+                    if (missingLayerCount[dimIndex, u] > 0)
+                    {
+                        // Number of "missing" layers in structure u: layers with no voxels of that structure,
+                        // but with layers that do have voxels both above and below.
+                        sizeLines.Add(new StatisticValue($"{dimChar}mi", uname, missingLayerCount[dimIndex, u]));
+                    }
+                    if (flatness[dimIndex, u, 0] > 0)
+                    {
+                        // Ratio of number of voxels in bottom slice (low Z) of structure to mean number
+                        // of voxels per slice in the structure.
+                        sizeLines.Add(new StatisticValue($"{dimChar}fl", uname, flatness[dimIndex, u, 0]));
+                    }
+                    if (flatness[dimIndex, u, 1] > 0)
+                    {
+                        // The same, but for the top slice (high Z). Note that the Z value in the data
+                        // is reversed from the one shown in the app.
+                        sizeLines.Add(new StatisticValue($"{dimChar}fh", uname, flatness[dimIndex, u, 1]));
+                    }
+                }
+                for (int v = u + 1; v < overlapCount.GetLength(1); v++)
+                {
+                    if (ShouldReportOverlap(canonicalNames, u, v, overlapCount))
+                    {
+                    var vname = canonicalNames[v];
+                    // Overlap ratio: overlapping voxels as a proportion of the smaller structure.
+                    var prop = overlapCount[0, u, v] * 1.0 / Math.Min(overlapCount[0, u, u], overlapCount[0, v, v]);
+                    sizeLines.Add(new StatisticValue("Ovr", uname, vname, prop));
+                    }
+                }
+            }
+            return sizeLines;
+        }
+
+        public static bool ShouldReportOverlap(List<string> canonicalNames, int u, int v, int[,,] overlapCount)
+        {
+            if (overlapCount[0, v, v] == 0 || overlapCount[0, u, v] == 0)
+            {
+                return false; // structure v is missing, or it doesn't overlap with u, so don't report.
+            }
+            if (canonicalNames[v] == ExternalStructureName || canonicalNames[u] == ExternalStructureName)
+            {
+                return false; // don't report on overlap of anything with skin
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Given a list of Volume3D with values assumed all to be 0 or 1, i.e. binary,
+        /// fills in the provided arrays with statistics, mostly to do with layers:
+        ///   overlapCount[u, v] is the number of voxels at which the volumes at positions
+        ///     u and v in binaries (including the last, skin, volume) are both 1, for u less
+        ///     than or equal to v.
+        ///   missingLayerCount[u] is the number of layers (Z planes) that have no voxels in
+        ///     binary u, but do have voxels in some u1 less than u and in some u2 greater than u.
+        ///   topBottomCount[u] is the total number of positive voxels in binary u that occur in
+        ///     either the top or the bottom layer of the image.
+        ///   flatness[u, 0] is the ratio of the number of positive voxels in the binary in the
+        ///     bottom (layer 0) layer of the image to the mean number of voxels in each layer over
+        ///     the layers that have any in the binary. Thus a binary that was the same in every
+        ///     layer would have flatness 1, and one that tapers off in layer 0 will have flatness less than 1.
+        ///   flatness[u, 1] is the same, but for the top layer of the structure.
+        /// </summary>
+        /// <param name="dimIndex">0, 1 or 2 for whether "layers" (slices) are in X, Y or Z dimensions</param>
+        /// <param name="binaries">binary volumes to use as inputs; some may be null</param>
+        /// <param name="overlapCount">2D array to be filled with pairwise overlap counts</param>
+        /// <param name="missingLayerCount">1D array to be filled with missing layer counts</param>
+        /// <param name="topBottomCount">1D array to be filled with total voxel counts at top and bottom layers</param>
+        /// <param name="flatness">2D array to be filled with flatness values per structure</param>
+        public static void CalculateLayerStatistics(int dimIndex, int dimSize, List<Volume3D<byte>> binaries, Volume3D<byte> first,
+            int[,,] overlapCount, int[,] missingLayerCount, int[,] topBottomCount, double[,,] flatness)
+        {
+            // layerOverlapCount[z, u, v] will be the number of voxels in layer z that are in both
+            // structure u and structure v, for u <= v.
+            int[,,] layerOverlapCount = new int[dimSize, binaries.Count, binaries.Count];
+            // hasContent[u, z] is whether structure u has any voxels in layer z.
+            bool[,] hasContent = new bool[binaries.Count, dimSize];
+            for (var xyz = 0; xyz < dimSize; xyz++)
+            {
+                SetLayerOverlapCounts(dimIndex, xyz, binaries, layerOverlapCount, hasContent);
+            }
+            PopulateOverlapCount(dimIndex, layerOverlapCount, overlapCount, flatness);
+            for (byte b = 0; b < hasContent.GetLength(0); b++)
+            {
+                missingLayerCount[dimIndex, b] = GetMissingLayerCount(hasContent, b);
+            }
+            for (byte b = 0; b < hasContent.GetLength(0); b++)
+            {
+                topBottomCount[dimIndex, b] = layerOverlapCount[0, b, b] + layerOverlapCount[dimSize - 1, b, b];
+            }
+        }
+
+        /// <summary>
+        /// Sets overlapCount[dimIndex, u, v] (for dimIndex=0,1,2 and structures indexed by u and v) to sum_xyz layerOverlapCount[xyz, u, v]
+        /// over all layers xyz in the dimIndex direction; sets flatness[dimIndex, u, 0] to the ratio of the number of voxels in structure u that are
+        /// in its "bottom" (index 0) layer (in that dimension), to the average number of voxels in structure u over all layers in u; and
+        /// sets flatness[dimIndex, u, 1] to that ratio for the "top" (maximum index) layer.
+        /// <param name="dimIndex">0, 1 or 2 for whether "layers" (slices) are in X, Y or Z dimensions</param>
+        /// <param name="layerOverlapCount">Position [xyz, u, v] is the number of voxels in layer xyz that are in both
+        /// structure u and structure v, for u <= v.</param>
+        /// <param name="overlapCount">Position [dimIndex, u, v] is set to the number of layers in direction dimIndex in which both
+        /// structures u and v feature.</param>
+        /// <param name="flatness">Position [dimIndex, u, 0] is set to the r
