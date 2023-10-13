@@ -812,4 +812,153 @@ namespace InnerEye.CreateDataset.Common.Models
         }
 
         private static List<StatisticValue> SingleStructureOffsetLines(DimensionInformation dimInfo,
-            ExtremeInfo values, string structure, bool r
+            ExtremeInfo values, string structure, bool restricted)
+        {
+            var dimName = dimInfo.dimName;
+            double structureMin = values.GetMinimum(dimName);
+            double structureMax = values.GetMaximum(dimName);
+            var size = structureMax - structureMin;
+            var spaceMax = dimInfo.sizeInMm;
+            var strucMid = (structureMin + structureMax) / 2;
+            var spaceMid = spaceMax / 2;
+            if (restricted)
+            {
+                return new List<StatisticValue>() { new StatisticValue($"{dimName}sz", structure, size) };
+            }
+            return new List<StatisticValue>
+            {
+                // Size of the structure in the current dimension
+                new StatisticValue($"{dimName}sz", structure, size),
+                // Distance from the min of the structure to the min of the whole space (which is zero)
+                new StatisticValue($"{dimName}lo", "space", structure, structureMin), 
+                // Distance from the mid of the structure to the mid of the whole space
+                new StatisticValue($"{dimName}md", "space", structure, strucMid - spaceMid),
+                // Distance from the max of the structure to the max of the whole space
+                new StatisticValue($"{dimName}hi", structure, "space", spaceMax - structureMax)
+            };
+        }
+
+        private static MeanAndStandardDeviation IntensityMeanAndSd(IEnumerable<short> intensities)
+        {
+            int c0 = 0;
+            double c1 = 0;
+            double c2 = 0;
+            foreach (var intensity in intensities)
+            {
+                c0++;
+                c1 += intensity;
+                c2 += intensity * intensity;
+            }
+            if (c0 <= 2)
+            {
+                return null;
+            }
+            var mu = c1 / c0;
+            var sd = Math.Sqrt((c2 - c0 * mu * mu) / (c0 - 1));
+            return new MeanAndStandardDeviation(mu, sd);
+        }
+
+        private static MeanAndStandardDeviation BackgroundIntensityMeanAndSd(Volume3D<short> image, List<Volume3D<byte>> binaries)
+        {
+            var nonNullBinaries = binaries.Where(x => x != null).ToArray();
+            int c0 = 0;
+            double c1 = 0;
+            double c2 = 0;
+            for (var index = 0; index < image.Length; index++)
+            {
+                if (nonNullBinaries.All(b => b[index] == 0))
+                {
+                    var intensity = image[index];
+                    c0++;
+                    c1 += intensity;
+                    c2 += intensity * intensity;
+                }
+            }
+            var mu = c1 / c0;
+            var sd = Math.Sqrt((c2 - c0 * mu * mu) / (c0 - 1));
+            return new MeanAndStandardDeviation(mu, sd);
+        }
+
+        private static double GetExactBoundaryRoc(Volume3D<short> image, Volume3D<byte> binary,
+            Region3D<int> region)
+        {
+            int margin = 5; // Margin in each direction, in mm
+            var dilated = binary.Dilate(margin);
+            var eroded = binary.Erode(margin);
+            // Margin in voxels, in each direction, rounding up for safety.
+            var expandedRegion = ExpandedRegion(region, binary, margin);
+            var outsideIntensities = GetIntensityList(dilated, expandedRegion, image, binary);
+            var insideIntensities = GetIntensityList(binary, region, image, eroded);
+            return IntensityRoc(outsideIntensities, insideIntensities);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="image">Image to take intensities from</param>
+        /// <param name="binary">Binary mask whose inside-boundary and outside-boundary intensities we want to compare</param>
+        /// <param name="region">Region guaranteed to enclose the non-zero values in "binary" (for efficiency)</param>
+        /// <returns>An approximation of the ROC of intensities just inside and just outside the boundary, where
+        /// "just" means within 5mm (see constant in code). The approximation arises because we will in general not
+        /// quite find all the pixels within a given (Euclidean) distance of the boundary. In practice, the error
+        /// seems to be quite small in magnitude, and this operation tends to be one or two orders of magnitude
+        /// faster than exact dilation and erosion.</returns>
+        private static double GetApproximateBoundaryRoc(Volume3D<short> image,
+            Volume3D<byte> binary, Region3D<int> region)
+        {
+            int margin = 5; // Margin in each direction, in mm
+            // How many pixel steps are represented by "margin", in each dimension. We insist on at least 1.
+            int xSteps = Math.Max(1, (int)(margin / image.SpacingX + 0.5));
+            int ySteps = Math.Max(1, (int)(margin / image.SpacingY + 0.5));
+            int zSteps = Math.Max(1, (int)(margin / image.SpacingZ + 0.5));
+            // Min and max x, y and z values to look at for possible boundaries.
+            // APPROXIMATION 1: we will miss any boundaries that are closer than [xyz]Steps pixels to the image boundary.
+            var xMin = Math.Max(xSteps, region.MinimumX);
+            var xMax = Math.Min(image.DimX - xSteps - 1, region.MaximumX);
+            var yMin = Math.Max(ySteps, region.MinimumY);
+            var yMax = Math.Min(image.DimY - ySteps - 1, region.MaximumY);
+            var zMin = Math.Max(zSteps, region.MinimumZ);
+            var zMax = Math.Min(image.DimZ - zSteps - 1, region.MaximumZ);
+            // Whether each position in the space is already known to be (approximately) near the boundary.
+            var nearBoundary = new bool[binary.DimX, binary.DimY, binary.DimZ];
+            // Intensities of just-inside and just-outside pixels.
+            var insideList = new List<short>();
+            var outsideList = new List<short>();
+            // In this loop, we look at all positions in the defined cuboid. When we find "binary" has a 1, we look in each
+            // of the six directions in turn to see if the neighbour has a 0. If so, that's a boundary. We look at every
+            // pixel within [xyz]Steps of the boundary in both directions. If it hasn't already been marked as near the
+            // boundary, we mark it, and add its intensity to insideList or outsideList depending on its own "binary" value.
+            // APPROXIMATION 2: this will miss some pixels that are in fact within "margin" of the boundary by Euclidean
+            // distance, because we only look in six directions. So for example, if the structure was a cuboid, we would
+            // not find the pixel diagonally touching each corner, i.e. displaced by (1,1,1) from the corner pixel of the
+            // cuboid. But such shapes should be pretty rare.
+            for (var z = zMin; z <= zMax; z++) {
+                var zRel = z - region.MinimumZ;
+                for (var y = yMin; y <= yMax; y++)
+                {
+                    var index = image.GetIndex(xMin, y, z);
+                    for (var x = xMin; x <= xMax; x++)
+                    {
+                        var val = binary[index];
+                        if (val > 0)
+                        {
+                            if (binary[index - 1] == 0)
+                            {
+                                for (var s = -xSteps; s < xSteps; s++)
+                                {
+                                    if (SetIfFalse(nearBoundary, x + s, y, z))
+                                    {
+                                        ExtendOneList(index + s, binary, image, insideList, outsideList);
+                                    }
+                                }
+                            }
+                            if (binary[index + 1] == 0)
+                            {
+                                for (var s = -xSteps + 1; s <= xSteps; s++)
+                                {
+                                    if (SetIfFalse(nearBoundary, x + s, y, z)) {
+                                        ExtendOneList(index + s, binary, image, insideList, outsideList);
+                                    }
+                                }
+                            }
+                
