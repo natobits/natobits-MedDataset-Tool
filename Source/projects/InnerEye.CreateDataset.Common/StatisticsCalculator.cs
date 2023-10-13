@@ -624,4 +624,192 @@ namespace InnerEye.CreateDataset.Common.Models
                     }
                 }
             }
-            var nP
+            var nPoints = dz > 0 ? 26 : 8;
+            return centralValue - sum / nPoints;
+        }
+
+        private class ExtremeInfo
+        {
+            public double xMin;
+            public double xMax;
+            public double yMin;
+            public double yMax;
+            public double zMin;
+            public double zMax;
+            public double compactness;
+            public double sphericality;
+
+            public ExtremeInfo(double xMin, double xMax, double yMin, double yMax, double zMin, double zMax,
+                double compactness = 0.0, double sphericality = 0.0)
+            {
+                this.xMin = xMin;
+                this.xMax = xMax;
+                this.yMin = yMin;
+                this.yMax = yMax;
+                this.zMin = zMin;
+                this.zMax = zMax;
+                this.compactness = compactness;
+                this.sphericality = sphericality;
+            }
+
+            public double GetMinimum(string dimName)
+            {
+                switch (dimName.ToUpper())
+                {
+                    case "X": return xMin;
+                    case "Y": return yMin;
+                    case "Z": return zMin;
+                    default: throw new ArgumentException($"Expected X, Y or Z, not {dimName}");
+                }
+            }
+
+            public double GetMaximum(string dimName)
+            {
+                switch (dimName.ToUpper())
+                {
+                    case "X": return xMax;
+                    case "Y": return yMax;
+                    case "Z": return zMax;
+                    default: throw new ArgumentException($"Expected X, Y or Z, not {dimName}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Given a binary volume and a region which is assumed to be the minimal one containing the
+        /// structure, returns a seven-element array, whose elements are:
+        ///   0,1: minimum and maximum X offset of the structure, in mm
+        ///   2,3: ditto for Y offset
+        ///   4,5: ditto for Z offset
+        ///   6:   "compactness" of the structure, defined above StatisticsCsvFile.
+        ///   7:   "sphericality" of the structure, defined above StatisticsCsvFile.
+        /// Elements 0 to 5 inclusive are taken directly from the region, which is assumed to be
+        /// correct and minimal.
+        /// </summary>
+        /// <param name="pair">Pair of a binary volume and a region to constrain the search to</param>
+        /// <returns>Array as above</returns>
+        private static ExtremeInfo CalculateExtremes(Tuple<Volume3D<byte>, Region3D<int>> pair)
+        {
+            var binary = pair.Item1;
+            var region = pair.Item2;
+            if (binary == null || region.MinimumX > region.MaximumX)
+            {
+                return null;
+            }
+            ExtremeInfo result = new ExtremeInfo(
+                region.MinimumX * binary.SpacingX, region.MaximumX * binary.SpacingX,
+                region.MinimumY * binary.SpacingY, region.MaximumY * binary.SpacingY,
+                region.MinimumZ * binary.SpacingZ, region.MaximumZ * binary.SpacingZ);
+            int c = 0;
+            double sumX = 0;
+            double sumY = 0;
+            double sumZ = 0;
+            double sum2 = 0;
+            for (int k = region.MinimumZ; k <= region.MaximumZ; k++)
+            {
+                var z = k * binary.SpacingZ;
+                for (int j = region.MinimumY; j <= region.MaximumY; j++)
+                {
+                    var y = j * binary.SpacingY;
+                    for (int i = region.MinimumX; i <= region.MaximumX; i++)
+                    {
+                        int l = binary.GetIndex(i, j, k);
+                        if (binary[l] > 0)
+                        {
+                            c++;
+                            var x = i * binary.SpacingX;
+                            sumX += x;
+                            sumY += y;
+                            sumZ += z;
+                            sum2 += x * x + y * y + z * z;
+                        }
+                    }
+                }
+            }
+            // Compactness:
+            var actualVolume = c * binary.VoxelVolume;
+            var cuboidVolume = (binary.SpacingX + result.xMax - result.xMin) *
+                (binary.SpacingY + result.yMax - result.yMin) *
+                (binary.SpacingZ + result.zMax - result.zMin);
+            var ellipsoidVolume = cuboidVolume * Math.PI / 6;
+            result.compactness = actualVolume / ellipsoidVolume;
+            // Sphericality:
+            var xBar = sumX / c;
+            var yBar = sumY / c;
+            var zBar = sumZ / c;
+            var actualSigma = Math.Sqrt(sum2 / c - (xBar * xBar + yBar * yBar + zBar * zBar));
+            var radiusIfSphere = Math.Pow(3 * actualVolume / (4 * Math.PI), 1.0 / 3.0);
+            var sigmaIfSphere = 0.6 * radiusIfSphere;
+            result.sphericality = sigmaIfSphere / actualSigma;
+            return result;
+        }
+        private static List<short> GetIntensityList(Volume3D<byte> binary, Region3D<int> region, Volume3D<short> image,
+            Volume3D<byte> toExclude = null)
+        {
+            if (binary == null || image == null)
+            {
+                return null;
+            }
+            var result = new List<short>();
+            for (int i = region.MinimumX; i <= region.MaximumX; i++)
+            {
+                for (int j = region.MinimumY; j <= region.MaximumY; j++)
+                {
+                    for (int k = region.MinimumZ; k <= region.MaximumZ; k++)
+                    {
+                        var index = binary.GetIndex(i, j, k);
+                        if (binary[index] > 0 && (toExclude == null || toExclude[index] == 0))
+                        {
+                            result.Add(image[index]);
+                        }
+                    }
+                }
+            }
+            return result;
+        }
+
+        private class CoordinateHistograms
+        {
+            public int[] XHistogram;
+            public int[] YHistogram;
+            public int[] ZHistogram;
+            public CoordinateHistograms(Volume3D<byte> binary)
+            {
+                XHistogram = new int[binary.DimX];
+                YHistogram = new int[binary.DimY];
+                ZHistogram = new int[binary.DimZ];
+            }
+
+            /// <summary>
+            /// Returns a tuple of three histograms (integer arrays), containing a counts of x, y and z values for all
+            /// non-zero elements in "binary". If "region" is non-null, we only look at values within it, to save time.
+            /// </summary>
+            public static CoordinateHistograms Create(Volume3D<byte> binary, Region3D<int> region)
+            {
+                if (binary == null)
+                {
+                    return null;
+                }
+                var result = new CoordinateHistograms(binary);
+                for (int i = region.MinimumX; i <= region.MaximumX; i++)
+                {
+                    for (int j = region.MinimumY; j <= region.MaximumY; j++)
+                    {
+                        for (int k = region.MinimumZ; k <= region.MaximumZ; k++)
+                        {
+                            var index = binary.GetIndex(i, j, k);
+                            if (binary[index] > 0)
+                            {
+                                result.XHistogram[i]++;
+                                result.YHistogram[j]++;
+                                result.ZHistogram[k]++;
+                            }
+                        }
+                    }
+                }
+                return result;
+            }
+        }
+
+        private static List<StatisticValue> SingleStructureOffsetLines(DimensionInformation dimInfo,
+            ExtremeInfo values, string structure, bool r
