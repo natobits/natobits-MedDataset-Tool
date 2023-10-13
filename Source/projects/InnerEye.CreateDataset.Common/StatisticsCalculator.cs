@@ -961,4 +961,190 @@ namespace InnerEye.CreateDataset.Common.Models
                                     }
                                 }
                             }
-                
+                            if (binary[index - image.DimX] == 0)
+                            {
+                                for (var s = -ySteps; s < ySteps; s++)
+                                {
+                                    if (SetIfFalse(nearBoundary, x, y + s, z))
+                                    {
+                                        ExtendOneList(index + s * image.DimX, binary, image, insideList, outsideList);
+                                    }
+                                }
+                            }
+                            if (binary[index + image.DimX] == 0)
+                            {
+                                for (var s = -ySteps + 1; s <= ySteps; s++)
+                                {
+                                    if (SetIfFalse(nearBoundary, x, y + s, z))
+                                    {
+                                        ExtendOneList(index + s * image.DimX, binary, image, insideList, outsideList);
+                                    }
+                                }
+                            }
+                            if (binary[index - image.DimXY] == 0)
+                            {
+                                for (var s = -zSteps; s < zSteps; s++)
+                                {
+                                    if (SetIfFalse(nearBoundary, x, y, z + s))
+                                    {
+                                        ExtendOneList(index + s * image.DimXY, binary, image, insideList, outsideList);
+                                    }
+                                }
+                            }
+                            if (binary[index + image.DimXY] == 0)
+                            {
+                                for (var s = -zSteps + 1; s <= zSteps; s++)
+                                {
+                                    if (SetIfFalse(nearBoundary, x, y, z + s))
+                                    {
+                                        ExtendOneList(index + s * image.DimXY, binary, image, insideList, outsideList);
+                                    }
+                                }
+                            }
+                        }
+                        index++;
+                    }
+                }
+            }
+            return IntensityRoc(outsideList, insideList);
+        }
+
+        private static bool SetIfFalse(bool[,,] array, int x, int y, int z)
+        {
+            if (!array[x, y, z])
+            {
+                array[x, y, z] = true;
+                return true;
+            }
+            return false;
+        }
+
+        private static void ExtendOneList(int index, Volume3D<byte> binary, Volume3D<short> image, List<short> insideList, List<short> outsideList)
+        {
+            var value = image[index];
+            if (binary[index] > 0)
+            {
+                insideList.Add(value);
+            }
+            else
+            {
+                outsideList.Add(value);
+            }
+        }
+
+        /// <summary>
+        /// Returns an expanded (dilated) version of a region.
+        /// </summary>
+        /// <param name="region">region to expand (dilate)</param>
+        /// <param name="volume">volume the region applies to</param>
+        /// <param name="margin">margin to expand by, in mm</param>
+        private static Region3D<int> ExpandedRegion(Region3D<int> region, Volume3D<byte> volume, int margin)
+        {
+            // Margins in voxels, rounding up:
+            var marginX = (int)Math.Ceiling(margin / volume.SpacingX);
+            var marginY = (int)Math.Ceiling(margin / volume.SpacingY);
+            var marginZ = (int)Math.Ceiling(margin / volume.SpacingZ);
+            return new Region3D<int>(
+                Math.Max(0, region.MinimumX - marginX),
+                Math.Max(0, region.MinimumY - marginY),
+                Math.Max(0, region.MinimumZ - marginZ),
+                Math.Min(volume.DimX - 1, region.MaximumX + marginX),
+                Math.Min(volume.DimY - 1, region.MaximumY + marginY),
+                Math.Min(volume.DimZ - 1, region.MaximumZ + marginZ));
+        }
+
+        private static double IntensityRoc(List<short> vals1, List<short> vals2)
+        {
+            if (vals1.IsNullOrEmpty() || vals2.IsNullOrEmpty())
+            {
+                return -1; // cannot calculate value; statistic will be omitted.
+            }
+            Random rand = new Random(); // for breaking ties
+            var list1 = vals1.Select(v => Tuple.Create(v, rand.Next(), false)).ToList();
+            double len1 = list1.Count;
+            var list2 = vals2.Select(v => Tuple.Create(v, rand.Next(), true)).ToList();
+            double len2 = list2.Count;
+            list1.AddRange(list2);
+            var sorted = list1.OrderBy(x => x).ToList();
+            var den = len1 * len2;
+            long num = 0;
+            int c = 0;
+            foreach (var tuple in sorted)
+            {
+                if (tuple.Item3)
+                {
+                    num += c;
+                }
+                else
+                {
+                    c++;
+                }
+            }
+            return num / den;
+        }
+
+        private static List<StatisticValue> StructurePairOffsetLines(DimensionInformation dimInfo, ExtremeInfo values1, ExtremeInfo values2,
+            string structure1, string structure2)
+        {
+            var dim = dimInfo.dimName;
+            var min1 = values1.GetMinimum(dim);
+            var max1 = values1.GetMaximum(dim);
+            var mid1 = (min1 + max1) / 2;
+            var min2 = values2.GetMinimum(dim);
+            var max2 = values2.GetMaximum(dim);
+            var mid2 = (min2 + max2) / 2;
+            var result = new List<StatisticValue>();
+            result.Add(structure2 == ExternalStructureName
+                ? new StatisticValue($"{dim}lo", structure2, structure1, min1 - min2)
+                : new StatisticValue($"{dim}lo", structure1, structure2, min2 - min1));
+            result.Add(
+                new StatisticValue($"{dim}md", structure1, structure2, mid2 - mid1));
+            result.Add(structure1 == ExternalStructureName
+                ? new StatisticValue($"{dim}hi", structure2, structure1, max1 - max2)
+                : new StatisticValue($"{dim}hi", structure1, structure2, max2 - max1));
+            if (structure1 != ExternalStructureName && structure2 != ExternalStructureName)
+            {
+                // Difference of extremes: max of second structure minus min of first.
+                result.Add(new StatisticValue($"{dim}de", structure1, structure2, max2 - min1));
+                result.Add(new StatisticValue($"{dim}de", structure2, structure1, max1 - min2));
+            }
+            return result;
+        }
+
+        private class RocTriple
+        {
+            public double XRoc;
+            public double YRoc;
+            public double ZRoc;
+            public RocTriple(double xRoc, double yRoc, double zRoc)
+            {
+                XRoc = xRoc;
+                YRoc = yRoc;
+                ZRoc = zRoc;
+            }
+        }
+
+        private static RocTriple CoordinateRocValues(CoordinateHistograms hists1,
+            CoordinateHistograms hists2)
+        {
+            if (hists1 == null || hists2 == null)
+            {
+                return null;
+            }
+            return new RocTriple(
+                HistogramRoc(hists1.XHistogram, hists2.XHistogram),
+                HistogramRoc(hists1.YHistogram, hists2.YHistogram),
+                HistogramRoc(hists1.ZHistogram, hists2.ZHistogram)
+            );
+        }
+
+        private static double HistogramRoc(IEnumerable<int> list1, IEnumerable<int> list2)
+        {
+            double num = 0;
+            long cumul1 = 0;
+            long cumul2 = 0;
+            foreach (var pair in list1.Zip(list2, Tuple.Create))
+            {
+                var n1 = pair.Item1;
+                var n2 = pair.Item2;
+                num += n2 * (cumul1 + 0.5 * n1);
