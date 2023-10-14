@@ -1275,4 +1275,158 @@ namespace InnerEye.CreateDataset.Common.Models
         /// structure u and structure v, for u <= v.</param>
         /// <param name="overlapCount">Position [dimIndex, u, v] is set to the number of layers in direction dimIndex in which both
         /// structures u and v feature.</param>
-        /// <param name="flatness">Position [dimIndex, u, 0] is set to the r
+        /// <param name="flatness">Position [dimIndex, u, 0] is set to the ratio of the number of voxels in the bottom layer in direction
+        /// dimIndex, to the mean number per layer (over layers that do feature u). Position [dimIndex, u, 1] is for the top layer.</param>
+        /// </summary>
+        private static void PopulateOverlapCount(int dimIndex, int[,,] layerOverlapCount, int[,,] overlapCount, double[,,] flatness)
+        {
+            for (int u = 0; u < layerOverlapCount.GetLength(1); u++)
+            {
+                // We only need to populate overlapCount once, so we do so for the first value of dimIndex.
+                if (dimIndex == 0)
+                {
+                    for (int v = u; v < layerOverlapCount.GetLength(2); v++)
+                    {
+                        overlapCount[dimIndex, u, v] +=
+                            Enumerable.Range(0, layerOverlapCount.GetLength(0))
+                                .Select(z => layerOverlapCount[z, u, v])
+                                .Sum();
+                    }
+                }
+                if (overlapCount[0, u, u] > 0)
+                {
+                    int xyzMin = Enumerable.Range(0, layerOverlapCount.GetLength(0))
+                        .First(xyz => layerOverlapCount[xyz, u, u] > 0);
+                    int xyzMax = Enumerable.Range(0, layerOverlapCount.GetLength(0))
+                        .Last(xyz => layerOverlapCount[xyz, u, u] > 0);
+                    double meanPerLayer = overlapCount[0, u, u] / (xyzMax - xyzMin + 1.0);
+                    flatness[dimIndex, u, 0] = layerOverlapCount[xyzMin, u, u] / meanPerLayer;
+                    flatness[dimIndex, u, 1] = layerOverlapCount[xyzMax, u, u] / meanPerLayer;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sets layerOverlapCount[z, ., .] and hasContent[., z] as described in the params.
+        /// </summary>
+        /// <param name="dimIndex">0 for an X layer, 1 for a Y layer, 2 for a Z layer</param>
+        /// <param name="xyz">the index (in the X, Y or Z dimension, depending on dimIndex) of the layer we're processing</param>
+        /// <param name="binaries">a list of the structures (masks)</param>
+        /// <param name="layerOverlapCount">position [xyz, u, v] will be set to the number of voxels in layer xyz that are in both u and v</param>
+        /// <param name="hasContent">position [u, z] will be set to whether structure u has any voxels in layer z</param>
+        private static void SetLayerOverlapCounts(int dimIndex, int xyz, List<Volume3D<byte>> binaries,
+            int[,,] layerOverlapCount, bool[,] hasContent)
+        {
+            // List of structures that we know have content in this layer, to save time in overlap checking.
+            var withContent = new List<byte>();
+            for (byte b = 0; b < binaries.Count; b++)
+            {
+                var binary = binaries[b];
+                if (binary == null)
+                {
+                    continue;
+                }
+                bool seenContent = false;
+                if (dimIndex == 0)
+                {
+                    var iMin = xyz;
+                    var iLim = binary.DimXY * binary.DimZ;
+                    var iStep = binary.DimX;
+                    seenContent = SetLayerOverlapCount(xyz, binaries, layerOverlapCount, withContent, b, iMin, iLim, iStep);
+                }
+                else if (dimIndex == 1)
+                {
+                    for (int zOff = 0; zOff < binary.DimXY * binary.DimZ; zOff += binary.DimXY)
+                    {
+                        var iMin = zOff + xyz * binary.DimX;
+                        var iLim = iMin + binary.DimX;
+                        seenContent = SetLayerOverlapCount(xyz, binaries, layerOverlapCount, withContent, b, iMin, iLim) || seenContent;
+                    }
+                }
+                else if (dimIndex == 2)
+                {
+                    var iMin = xyz * binary.DimXY;
+                    var iLim = iMin + binary.DimXY;
+                    seenContent = SetLayerOverlapCount(xyz, binaries, layerOverlapCount, withContent, b, iMin, iLim);
+                }
+                if (seenContent)
+                {
+                    hasContent[b, xyz] = seenContent;
+                    withContent.Add(b);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sets layerOverlapCount
+        /// </summary>
+        /// <param name="dimIndex">direction for the layers: 0=X, 1=Y, 2=Z</param>
+        /// <param name="binaries">structure masks</param>
+        /// <param name="layerOverlapCount">Position [dimIndex, u, binaryIndex] is set by this method for all u less than or equal to binaryIndex</param>
+        /// <param name="withContent">list of indices of earlier (less than binaryIndex) structures that have some content</param>
+        /// <param name="binaryIndex">index of current binary</param>
+        /// <param name="iMin">voxel index to start at</param>
+        /// <param name="iLim">upper bound on voxel index</param>
+        /// <param name="iStep">step size for voxel index</param>
+        /// <returns></returns>
+        private static bool SetLayerOverlapCount(int dimIndex, List<Volume3D<byte>> binaries, int[,,] layerOverlapCount, List<byte> withContent,
+            byte binaryIndex, int iMin, int iLim, int iStep = 1)
+        {
+            var binary = binaries[binaryIndex];
+            var seenContent = false;
+            for (int i = iMin; i < iLim; i += iStep)
+            {
+                if (binary[i] > 0)
+                {
+                    seenContent = true;
+                    IncrementLayerOverlapCount(dimIndex, binaries, layerOverlapCount, withContent, binaryIndex, i);
+                }
+            }
+            return seenContent;
+        }
+
+        private static void IncrementLayerOverlapCount(int dimIndex, List<Volume3D<byte>> binaries, int[,,] layerOverlapCount, List<byte> withContent, byte binaryIndex, int i)
+        {
+            // Increase the count of times this structure overlaps with
+            // itself in layer z.
+            layerOverlapCount[dimIndex, binaryIndex, binaryIndex]++;
+            // Calculate overlaps with earlier layers
+            foreach (var b1 in withContent)
+            {
+                {
+                    if (binaries[b1][i] > 0)
+                    {
+                        // Increase the count of times this structure overlaps with
+                        // itself in layer z.
+                        layerOverlapCount[dimIndex, b1, binaryIndex]++;
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns the number of "missing" layers in structure b, based on hasContent[b, z] over
+        /// layers z: the number of z values for which hasContent[b, z] is false, when there are
+        /// values z1 and z2 respectively below and above z for which hasContent[b, z{1,2}] is true.
+        /// </summary>
+        /// <param name="hasContent"></param>
+        /// <param name="b"></param>
+        /// <returns></returns>
+        private static int GetMissingLayerCount(bool[,] hasContent, byte b)
+        {
+            int zMin = hasContent.GetLength(1);
+            int zMax = -1;
+            int nFilled = 0;
+            for (int z = 0; z < hasContent.GetLength(1); z++)
+            {
+                if (hasContent[b, z])
+                {
+                    zMin = Math.Min(zMin, z);
+                    zMax = Math.Max(zMax, z);
+                    nFilled++;
+                }
+            }
+            return (zMax - zMin + 1) - nFilled;
+        }
+    }
+}
