@@ -372,3 +372,21 @@
         public static string ReplaceSeparators(string fileName)
         {
             return fileName.Replace(Path.DirectorySeparatorChar, DirectorySeparator);
+        }
+
+        /// <summary>
+        /// If the given text starts with the prefix, returns the substring after the prefix.
+        /// Otherwise, returns the text unchanged.
+        /// </summary>
+        /// <param name="text"></param>
+        /// <param name="prefix"></param>
+        /// <returns></returns>
+        public static string StripPrefix(string text, string prefix)
+        {
+            return
+                text.StartsWith(prefix, StringComparison.Ordinal)
+                ? text.Substring(prefix.Length)
+                : text;
+        }
+    }
+}
