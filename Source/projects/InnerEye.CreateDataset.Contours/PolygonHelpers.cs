@@ -175,4 +175,52 @@
             }
 
             ContourPolygon? bestContour = null;
-            PointF? best
+            PointF? bestPoint = null;
+
+            var bestDistance = double.MaxValue;
+
+            foreach (var currentContour in contour)
+            {
+                if (TryGetClosestPointOnPolygon(currentContour.ContourPoints, currentPosition, out var closestPoint) 
+                    && closestPoint.Item1 < bestDistance)
+                {
+                    bestContour = currentContour;
+                    bestDistance = closestPoint.Item1;
+                    bestPoint = closestPoint.Item2;
+                }
+            }
+
+            return 
+                bestContour == null || bestPoint == null 
+                ? null 
+                : Tuple.Create(bestContour.Value, bestPoint.Value);
+        }
+
+        private static PointF GetClosestPointOnLine(PointF start, PointF end, PointF p)
+        {
+            var vector = end.Subtract(start);
+            var length = vector.LengthSquared();
+            if (length == 0.0)
+            {
+                return start;
+            }
+
+            // Consider the line extending the segment, parameterized as v + t (w - v).
+            // We find projection of point p onto the line.
+            // It falls where t = [(p-v) . (w-v)] / |w-v|^2
+            var t = p.Subtract(start).DotProduct(vector) / length;
+            if (t < 0.0)
+            {
+                return start; // Beyond the 'v' end of the segment
+            }
+
+            if (t > 1.0)
+            {
+                return end;   // Beyond the 'w' end of the segment
+            }
+
+            // Projection falls on the segment
+            return start.Add(vector.Multiply(t));
+        }
+    }
+}
