@@ -454,4 +454,178 @@
                     else if (!shiftX & !shiftY)
                     {
                         result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
-                        res
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                    }
+                    else if (shiftY && !shiftX)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                    }
+
+                    shiftX = true;
+                    shiftY = false;
+                }
+
+                // South West Diagonal
+                else if (changeX == -1 && changeY == 1)
+                {
+                    if (shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                    }
+                    else if (shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                    }
+                    else if (!shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                    }
+
+                    shiftY = true;
+                    shiftX = true;
+                }
+
+                // Nort West Diagonal
+                else if (changeX == -1 && changeY == -1)
+                {
+                    if (!shiftX & shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                    }
+                    else if (shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                    }
+                    else if (shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                    }
+
+                    shiftX = false;
+                    shiftY = true;
+                }
+
+                // North East Diagonal
+                else if (changeX == 1 && changeY == -1)
+                {
+                    if (!shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                    }
+                    else if (!shiftX & shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                    }
+                    else if (shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                    }
+
+                    shiftX = false;
+                    shiftY = false;
+                }
+
+                // West
+                else if (changeX == 1 && changeY == 0)
+                {
+                    if (!shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                    }
+
+                    if (!shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                    }
+                    else if (shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                    }
+
+                    shiftX = true;
+                    shiftY = false;
+                }
+
+                // East
+                else if (changeX == -1 && changeY == 0)
+                {
+                    if (shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                    }
+
+                    if (shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                    }
+                    else if (!shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                    }
+
+                    shiftX = false;
+                    shiftY = true;
+                }
+
+                // South
+                else if (changeX == 0 && changeY == 1)
+                {
+                    if (shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                    }
+
+                    if (!shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                    }
+                    else if (!shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift));
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                    }
+
+                    shiftX = true;
+                    shiftY = true;
+                }
+
+                // North
+                else if (changeX == 0 && changeY == -1)
+                {
+                    if (!shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                    }
+
+                    if (shiftX && shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                    }
+                    else if (shiftX && !shiftY)
+                    {
+                        result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                        result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                    }
+
+ 
