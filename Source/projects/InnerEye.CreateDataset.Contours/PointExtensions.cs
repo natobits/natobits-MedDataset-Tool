@@ -89,4 +89,7 @@
         /// <param name="x"></param>
         /// <param name="y"></param>
         /// <returns></returns>
-        public static
+        public static PointF FromDouble(double x, double y)
+            => new PointF((float)x, (float)y);
+    }
+}
