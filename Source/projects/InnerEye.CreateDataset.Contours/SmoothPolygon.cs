@@ -628,4 +628,69 @@
                         result.Add(new PointF(currentPointX + shift, currentPointY + shift));
                     }
 
- 
+                    shiftX = false;
+                    shiftY = false;
+                }
+
+                result.Add(new PointF(pointX + shift + (shiftX ? 1 : 0), pointY + shift + (shiftY ? 1 : 0)));
+
+                currentPointX = pointX;
+                currentPointY = pointY;
+            }
+
+            var distanceTolerance = 1e-2;
+            if (isCounterClockwise)
+            {
+                // Hacks to complete counterclockwise contour plotting: In one case, we need
+                // to insert an additional segment, and in some cases (not detectable by means of the
+                // variables shiftX and shiftY) remove surplus segments.
+                if (shiftX && shiftY)
+                {
+                    result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                }
+
+                // If first and last PointF coincide, remove the last one.
+                var d0 = result[discardFirstSegments].Subtract(result[result.Count - 1]).LengthSquared();
+                if (Math.Abs(d0) < distanceTolerance)
+                {
+                    discardLastSegments = 1;
+                }
+            }
+            else
+            {
+                // Make the last PointF join up to the first
+                if (!shiftX && shiftY)
+                {
+                    result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                }
+
+                if (shiftX && shiftY)
+                {
+                    result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                    result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                }
+                else if (shiftX && !shiftY)
+                {
+                    result.Add(new PointF(currentPointX + shift + 1, currentPointY + shift + 1));
+                    result.Add(new PointF(currentPointX + shift, currentPointY + shift + 1));
+                    result.Add(new PointF(currentPointX + shift, currentPointY + shift));
+                }
+            }
+
+            var take = result.Count - discardLastSegments;
+            var resultArray = result.Take(take).Skip(discardFirstSegments).ToArray();
+
+            // Measure the distance from the start of the first line segment to the end.
+            // This must be 1.
+            var firstPoint = resultArray[0];
+            var lastPoint = resultArray[resultArray.Length - 1];
+            var distance = firstPoint.Subtract(lastPoint).LengthSquared();
+            if (Math.Abs(1 - distance) > distanceTolerance)
+            {
+                throw new InvalidOperationException($"Unable to find a closed contour. The contour started at {firstPoint}, and ended at {lastPoint}, leaving a gap of {distance:0.000}.");
+            }
+
+            return resultArray;
+        }
+    }
+}
