@@ -147,4 +147,50 @@
         /// <param name="sliceIndex"></param>
         /// <param name="outVolume"></param>
         /// <param name="skip"></param>
-        private static void Extract<T>(Volume3D<T> volume, SliceType sliceType, int sliceIndex, T[]
+        private static void Extract<T>(Volume3D<T> volume, SliceType sliceType, int sliceIndex, T[] outVolume, int skip = 1)
+        {
+            switch (sliceType)
+            {
+                case SliceType.Axial:
+                    if (sliceIndex < volume.DimZ && outVolume.Length == volume.DimXY * skip)
+                    {
+                        Parallel.For(0, volume.DimY, y =>
+                        {
+                            for (var x = 0; x < volume.DimX; x++)
+                            {
+                                outVolume[(x + y * volume.DimX) * skip] = volume[(sliceIndex * volume.DimY + y) * volume.DimX + x];
+                            }
+                        });
+                    }
+
+                    break;
+                case SliceType.Coronal:
+                    if (sliceIndex < volume.DimY && outVolume.Length == volume.DimZ * volume.DimX * skip)
+                    {
+                        Parallel.For(0, volume.DimZ, z =>
+                        {
+                            for (var x = 0; x < volume.DimX; x++)
+                            {
+                                outVolume[(x + z * volume.DimX) * skip] = volume[(z * volume.DimY + sliceIndex) * volume.DimX + x];
+                            }
+                        });
+                    }
+
+                    break;
+                case SliceType.Sagittal:
+                    if (sliceIndex < volume.DimX && outVolume.Length == volume.DimY * volume.DimZ * skip)
+                    {
+                        Parallel.For(0, volume.DimZ, z =>
+                        {
+                            for (var y = 0; y < volume.DimY; y++)
+                            {
+                                outVolume[(y + z * volume.DimY) * skip] = volume[(z * volume.DimY + y) * volume.DimX + sliceIndex];
+                            }
+                        });
+                    }
+
+                    break;
+            }
+        }
+    }
+}
