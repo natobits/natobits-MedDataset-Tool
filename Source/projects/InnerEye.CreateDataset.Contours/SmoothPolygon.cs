@@ -124,4 +124,162 @@
         }
 
         /// <summary>
-        /// Gets the PointF at which the line between point1 
+        /// Gets the PointF at which the line between point1 and point2 attains the given x value.
+        /// </summary>
+        /// <param name="point1"></param>
+        /// <param name="point2"></param>
+        /// <param name="x"></param>
+        /// <returns></returns>
+        public static PointF IntersectLineAtX(PointF point1, PointF point2, int x)
+        {
+            var direction = point2.Subtract(point1);
+            if (Math.Abs(direction.X) < 1e-10)
+            {
+                return point1;
+            }
+
+            var deltaX = x - point1.X;
+            return new PointF(x, point1.Y + deltaX * direction.Y / direction.X);
+        }
+
+        /// <summary>
+        /// Connects a parent contour (outer rim of a structure) with a child contour that represents the inner rim
+        /// of a structure with holes. The connection is done via a vertical line from the starting PointF of the child contour
+        /// to a PointF above (smaller Y coordinate) in the parent contour.
+        /// </summary>
+        /// <param name="parent"></param>
+        /// <param name="childStartingPoint"></param>
+        /// <returns></returns>
+        public static PointF[] ConnectViaVerticalLine(PointF[] parent, PointF[] child, PointInt childStartingPoint)
+        {
+            if (parent == null || parent.Length == 0)
+            {
+                throw new ArgumentNullException(nameof(parent));
+            }
+
+            if (child == null || child.Length == 0)
+            {
+                throw new ArgumentNullException(nameof(child));
+            }
+
+            var parentIndex1 = FindIntersectingPoints(parent, childStartingPoint, searchForHighestY: true);
+            var childIndex1 = FindIntersectingPoints(child, childStartingPoint, searchForHighestY: false);
+            (int, PointF) GetIntersection(PointF[] points, int index)
+            {
+                var index2 = index == points.Length - 1 ? 0 : index + 1;
+                return (index2, IntersectLineAtX(points[index], points[index2], childStartingPoint.X));
+            }
+
+            var (_, connectionPointParent) = GetIntersection(parent, parentIndex1);
+            var (_, connectionPointChild) = GetIntersection(child, childIndex1);
+            var connectionPoints = new PointF[] { connectionPointParent, connectionPointChild };
+            return InsertChildIntoParent(parent, parentIndex1, child, childIndex1 + 1, connectionPoints);
+        }
+
+        /// <summary>
+        /// Splices an array ("parent array") with contour points, and inserts a child contour into.
+        /// The result will be composed of the following parts:
+        /// * The first entries of the parent array, until and including the <paramref name="insertPositionInParent"/> index
+        /// * The connection points in <paramref name="connectingPointsFromParentToChild"/>
+        /// * The entries of the child array starting at <paramref name="childStartPosition"/>
+        /// * The entries of the child array from 0 to before the <paramref name="childStartPosition"/>
+        /// * The connection points in reverse order
+        /// * then the remaining entries from the parent array, starting at <paramref name="insertPositionInParent"/> + 1.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="parent"></param>
+        /// <param name="insertPositionInParent">The position in the parent array at which the child should be inserted.
+        /// Must be in the range 0 .. parent.Length.</param>
+        /// <param name="child"></param>
+        /// <param name="childStartPosition">The element of the child array that should be inserted first.</param>
+        /// <param name="connectingPointsFromParentToChild">The points that connect parent and child.</param>
+        /// <returns></returns>
+        public static T[] InsertChildIntoParent<T>(
+            T[] parent,
+            int insertPositionInParent,
+            T[] child,
+            int childStartPosition,
+            T[] connectingPointsFromParentToChild)
+        {
+            parent = parent ?? throw new ArgumentNullException(nameof(parent));
+            connectingPointsFromParentToChild = connectingPointsFromParentToChild ?? throw new ArgumentNullException(nameof(connectingPointsFromParentToChild));
+
+            if (child == null || child.Length == 0)
+            {
+                throw new ArgumentNullException(nameof(child));
+            }
+
+            if (insertPositionInParent < 0 || insertPositionInParent > parent.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(insertPositionInParent));
+            }
+
+            if (childStartPosition < 0 || childStartPosition >= child.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(insertPositionInParent));
+            }
+
+            var connectionLength = connectingPointsFromParentToChild.Length;
+            var result = new T[parent.Length + connectionLength + child.Length + connectionLength];
+            var insertAt = 0;
+            void Insert(T[] sourceArray, int sourceIndex, int length)
+            {
+                Array.Copy(sourceArray, sourceIndex, result, insertAt, length);
+                insertAt += length;
+            }
+
+            // Copy the first elements up to and including the insertPosition directly from parent.
+            Insert(parent, 0, insertPositionInParent + 1);
+
+            // The points that make up the connection from the parent to the child starting PointF.
+            Insert(connectingPointsFromParentToChild, 0, connectionLength);
+
+            // Then follow the elements from child, up to the end of the child array.
+            Insert(child, childStartPosition, child.Length - childStartPosition);
+
+            // The remaining elements from the beginning of the child array
+            Insert(child, 0, childStartPosition);
+
+            // Add the connecting points in reverse order, back to the parent.
+            for (var index = connectionLength; index > 0; index--)
+            {
+                result[insertAt++] = connectingPointsFromParentToChild[index - 1];
+            }
+
+            // Finally the remaining elements from the parent.
+            if (insertPositionInParent < parent.Length - 1)
+            {
+                Insert(parent, insertPositionInParent + 1, parent.Length - insertPositionInParent - 1);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Smoothes a PointF polygon that contains an inner and an outer rim. Inner and outer rim are
+        /// smoothed separately, and then connected via a zero width "channel": The smoothed
+        /// contour will first follow the outer polygon, then go to the inner contour, follow
+        /// the inner contour, and then go back to the outer contour.
+        /// </summary>
+        /// <param name="polygon"></param>
+        /// <param name="smoothingFunction"></param>
+        /// <returns></returns>
+        private static PointF[] SmoothAndMerge(InnerOuterPolygon polygon, Func<IReadOnlyList<PointInt>, bool, PointF[]> smoothingFunction)
+        {
+            var result = smoothingFunction(polygon.Outer.Points, false);
+            foreach (var inner in polygon.Inner)
+            {
+                result = ConnectViaVerticalLine(result, smoothingFunction(inner.Points, true), inner.StartPointMinimumY);
+            }
+
+            return result;
+        }
+
+        private static PointF[] SmallSmoothPolygon(IReadOnlyList<PointInt> polygon, bool isCounterClockwise)
+        {
+            // The contour simplification code called below expects contours in a string format
+            // describing a sequence of unit moves (left, right, straight). The ideal place to
+            // compute such a string would be in the code for walking around the contour bounary.
+            // But to facilitate early integration, we'll do this here for now.
+            var perimeterPath = ClockwisePointsToExternalPathWindowsPoints(polygon, isCounterClockwise, 0.0f);
+ 
