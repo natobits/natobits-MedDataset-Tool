@@ -101,4 +101,36 @@
       <Project>{8db64d15-3241-44d8-805d-cdfd7a5623a8}</Project>
       <Name>InnerEye.CreateDataset.Common</Name>
     </ProjectReference>
-    <ProjectRefere
+    <ProjectReference Include="..\InnerEye.CreateDataset.Contours\InnerEye.CreateDataset.Contours.csproj">
+      <Project>{a27fa639-8a1d-40cc-8bc8-7bea28e615b2}</Project>
+      <Name>InnerEye.CreateDataset.Contours</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\InnerEye.CreateDataset.Math\InnerEye.CreateDataset.Math.csproj">
+      <Project>{d8e303da-8713-411d-a909-fe507f39a0ae}</Project>
+      <Name>InnerEye.CreateDataset.Math</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\InnerEye.CreateDataset.Volumes\InnerEye.CreateDataset.Volumes.csproj">
+      <Project>{12416238-4311-4d15-a2d9-4f3ed7771244}</Project>
+      <Name>InnerEye.CreateDataset.Volumes</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\MedLib.IO\MedLib.IO.csproj">
+      <Project>{97046B3E-6DE6-4A84-946D-17BA956411DD}</Project>
+      <Name>MedLib.IO</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\InnerEye.CreateDataset.Data\InnerEye.CreateDataset.Data.fsproj">
+      <Project>{1b389782-77ee-471d-ab4c-f5a10a8b2ffe}</Project>
+      <Name>InnerEye.CreateDataset.Data</Name>
+    </ProjectReference>
+  </ItemGroup>
+  <ItemGroup>
+    <Service Include="{82A7F48D-3B50-4B1E-B82E-3ADA8210C358}" />
+  </ItemGroup>
+  <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+</Project>
