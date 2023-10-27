@@ -173,4 +173,179 @@
         ///  Union: A.union.B means all voxels that are in A or B or both
         ///  Minus: A.minus.B means all voxels that are in A but not in B
         /// </summary>
-        Ab
+        Above,
+        NotBelow,
+        Below,
+        NotAbove,
+        Intersection,
+        Union,
+        Minus
+    }
+
+    /// <summary>
+    /// Holds the per-channel information for a given subject: A scan volume, and the associated labelled structures
+    /// as a binary mask.
+    /// </summary>
+    public class VolumeAndStructures
+    {
+        private Dictionary<string, Volume3D<byte>> _structures;
+
+        /// <summary>
+        /// The volume containing the scan.
+        /// </summary>
+        public Volume3D<short> Volume { get; }
+
+        /// <summary>
+        /// The anatomical structures that are labelled in the volume, as a mapping between structure name and the mask volume.
+        /// </summary>
+        public IReadOnlyDictionary<string, Volume3D<byte>> Structures
+        {
+            get => _structures;
+        }
+
+        /// <summary>
+        /// The metadata (subject, series, etc) that is available for the volume and structures.
+        /// </summary>
+        public VolumeMetadata Metadata { get; }
+
+        /// <summary>
+        /// Creates a new instance of the class, setting all properties.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <param name="structures"></param>
+        /// <param name="metadata"></param>
+        public VolumeAndStructures(Volume3D<short> volume, Dictionary<string, Volume3D<byte>> structures, VolumeMetadata metadata)
+        {
+            Volume = volume ?? throw new ArgumentNullException(nameof(volume));
+            _structures = structures ?? throw new ArgumentNullException(nameof(structures));
+            Metadata = metadata ?? throw new ArgumentNullException(nameof(metadata));
+        }
+
+        /// <summary>
+        /// Splits the medical volume in the argument into the actual scan, 
+        /// the structures as binary masks, and the metadata.
+        /// </summary>
+        /// <param name="volumeAndMetadata"></param>
+        /// <param name="isLowerCaseConversionEnabled">If true, all structure names are converted to lower case.</param>
+        /// <returns></returns>
+        public static VolumeAndStructures FromMedicalVolume(VolumeAndMetadata volumeAndMetadata,
+            bool isLowerCaseConversionEnabled, bool dropRepeats = false)
+        {
+            var volume = volumeAndMetadata.Volume.Volume;
+            var structures = new Dictionary<string, Volume3D<byte>>();
+            volumeAndMetadata.Volume.Struct.Contours
+            .ForEach(contour =>
+            {
+                var name = contour.StructureSetRoi.RoiName;
+                if (isLowerCaseConversionEnabled)
+                {
+                    name = name.ToLowerInvariant();
+                }
+
+                if (structures.ContainsKey(name))
+                {
+                    if (!dropRepeats)
+                    {
+                        var series = volumeAndMetadata.Metadata.SeriesId;
+                        throw new ArgumentException($"The volume contains multiple contours with the name '{name}'. The culprit is series {series}");
+                    }
+                }
+                else
+                {
+                    structures.Add(name, contour.Contours.ToVolume3D(volume));
+                }
+            });
+
+            return new VolumeAndStructures(volume, structures, volumeAndMetadata.Metadata);
+        }
+
+        /// <summary>
+        /// If oldName is of the form "AOB" where A and B are structure names and O is an operation name, try to create
+        /// a structure named newName by applying the operator to the A and B structures if they exists. Otherwise,
+        /// if there is a structure with the given oldName, it is removed and re-added to the set of structures
+        /// under the newName. If no structure with the given oldName exists, no change is made.
+        /// Returns true if a change is made, false otherwise.
+        /// Throws an <see cref="InvalidOperationException"/> if a structure with the oldName exists, but another
+        /// structures with the given newName already exists.
+        /// </summary>
+        /// <param name="oldName"></param>
+        /// <param name="newName"></param>
+        /// <param name="allowNameClashes">If true, a rename operation can overwrite an existing structure.</param>
+        /// <returns>Returns true if a change is made or if oldName equals newName and such a structure exists (i.e.
+        /// a trivial renaming), false otherwise.</returns>
+        public bool RenameOrAugment(string oldName, string newName, bool allowNameClashes, bool isAugmentation)
+        {
+            // First, try to parse oldName as two names separated by an operator. If this succeeds and the two structures
+            // exist, (try to) carry out the operation.
+            var op = StructureOperation.FromString(oldName);
+            var subjectId = Metadata.SubjectId;
+            if (op != null && _structures.ContainsKey(op.StructureName1) && _structures.ContainsKey(op.StructureName2))
+            {
+                Volume3D<byte> computedStructure = op.Apply(_structures);
+                if (isAugmentation)
+                {
+                    int nComputed = 0;
+                    foreach (var b in computedStructure.Array)
+                    {
+                        nComputed += b;
+                    }
+                    Trace.TraceInformation($"Subject {subjectId}: computed structure from {oldName} has {nComputed} voxels");
+                    AugmentStructureWithName(newName, computedStructure);
+                    DiminishStructureWithName(op.StructureName1, computedStructure);
+                    return false;  // always continue caller after augmenting
+                }
+                else
+                {
+                    MayRemoveOrThrow(oldName, newName, allowNameClashes);
+                    _structures.Add(newName, computedStructure);
+                    Trace.TraceInformation($"Subject {subjectId}: created {newName} by applying {op.OperationName} to {op.StructureName1} and {op.StructureName2}");
+                    return true;
+                }
+            }
+            // Treat oldName as a simple structure name.
+            if (Structures.TryGetValue(oldName, out var volume))
+            {
+                if (newName != oldName)
+                {
+                    if (isAugmentation)
+                    {
+                        AugmentStructureWithName(newName, Structures[oldName]);
+                        return false;  // always continue caller after augmenting
+                    }
+                    else
+                    {
+                        MayRemoveOrThrow(oldName, newName, allowNameClashes);
+                        _structures.Remove(oldName);
+                        _structures.Add(newName, volume);
+                        Trace.TraceInformation($"Subject {subjectId}: renamed {oldName} to {newName}");
+                    }
+                }
+                return true;
+            }
+            return false;
+        }
+
+        private void AugmentStructureWithName(string newName, Volume3D<byte> computedStructure)
+        {
+            var subjectId = Metadata.SubjectId;
+            if (_structures.ContainsKey(newName))
+            {
+                int nAdded = 0;
+                int nAlready = 0;
+                var computedArray = computedStructure.Array;
+                var target = _structures[newName];
+                var targetArray = target.Array;
+                for (var index = 0; index < computedArray.Length; index++)
+                {
+                    if (targetArray[index] == 0)
+                    {
+                        targetArray[index] = computedArray[index];
+                        nAdded += computedArray[index];
+                    } else
+                    {
+                        nAlready++;
+                    }
+                }
+                Trace.TraceInformation($"Subject {subjectId}: added {nAdded} voxels to {newName} (on top of original {nAlready})");
+            }
+  
