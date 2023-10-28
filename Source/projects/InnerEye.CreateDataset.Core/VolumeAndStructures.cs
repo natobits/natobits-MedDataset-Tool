@@ -348,4 +348,179 @@
                 }
                 Trace.TraceInformation($"Subject {subjectId}: added {nAdded} voxels to {newName} (on top of original {nAlready})");
             }
-  
+            else
+            {
+                Trace.TraceInformation($"Subject {subjectId}: ContainsKey failed on {newName}; keys are {string.Join(",", _structures.Keys)}");
+                _structures.Add(newName, computedStructure);
+                Trace.TraceInformation($"Subject {subjectId}: created {newName} as an augmentation; keys are now {string.Join(",", _structures.Keys)}");
+            }
+        }
+
+        private void DiminishStructureWithName(string newName, Volume3D<byte> computedStructure)
+        {
+            var computedArray = computedStructure.Array;
+            var target = _structures[newName];
+            var targetArray = target.Array;
+            int nSubtracted = 0;
+            int nLeft = 0;
+            for (var index = 0; index < computedArray.Length; index++)
+            {
+                if (computedArray[index] > 0)
+                {
+                    nSubtracted += targetArray[index];
+                    targetArray[index] = 0;
+                } else
+                {
+                    nLeft += targetArray[index];
+                }
+
+            }
+            Trace.TraceInformation($"Subject {Metadata.SubjectId}: subtracted {nSubtracted} voxels from {newName}, leaving {nLeft}");
+        }
+
+        /// <summary>
+        /// If newName occurs in Structures, either remove that structure if allowNameClashes is true, or throw
+        /// an exception.
+        /// </summary>
+        /// <param name="oldName">name of structure to be renamed - only used in the exception</param>
+        /// <param name="newName">target structure name</param>
+        /// <param name="allowNameClashes">whether to go ahead anyway if structure "newName" exists</param>
+        private void MayRemoveOrThrow(string oldName, string newName, bool allowNameClashes)
+        {
+            if (Structures.ContainsKey(newName))
+            {
+                if (allowNameClashes)
+                {
+                    _structures.Remove(newName);
+                }
+                else
+                {
+                    throw new InvalidOperationException($"Unable to perform the renaming from '{oldName}' to '{newName}': A structure with this name already exists.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Attempts to perform all structure re-naming operations that are suggested by the argument.
+        /// For a name mapping oldName1,oldName2,...:newName:
+        /// (1) If zero or one structure with any of the old or new names exists, nothing is done;
+        /// (2) else if allowNameClashes is false, throws an <see cref="InvalidOperationException"/> (if throwIfInvalid is true)
+        /// or makes no changes and returns false (if throwIfInvalid is false)
+        /// (3) else rename structures according to the description on the <see cref="AllowNameClashes"> parameter in <see cref="CommandlineCreateDataset">.
+        /// 
+        /// Alternatively, each "oldNameN" may be two names separated by one of the operators defined in the StructureOperation class. In this case,
+        /// if structures exist for both names, the new structure is created by applying the operator to those structures (which are not removed).
+        /// </summary>
+        /// <param name="nameMappings"></param>
+        /// <param name="allowNameClashes">If true, clashes between multiple named structures are resolved.</param>
+        /// <param name="throwIfInvalid">If true, we throw if a renaming fails; otherwise we print an error and eventually return false.</param>
+        /// <returns>whether the renamings (if any) succeeded</returns>
+        public bool Rename(IEnumerable<NameMapping> nameMappings, bool allowNameClashes, bool throwIfInvalid = true)
+        {
+            bool allMappingsSuccessful = true;
+            if (nameMappings != null)
+            {
+                foreach (var nameMapping in nameMappings)
+                {
+                    bool thisMappingIsValid = allowNameClashes || MappingCanBeApplied(nameMapping, throwIfInvalid);
+                    if (thisMappingIsValid)
+                    {
+                        foreach (var oldName in nameMapping.OldNames)
+                        {
+                            var wasRenamed = RenameOrAugment(oldName, nameMapping.NewName, allowNameClashes, nameMapping.IsAugmentation);
+                            if (wasRenamed)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        allMappingsSuccessful = false;
+                    }
+                }
+            }
+            return allMappingsSuccessful;
+        }
+
+        private bool MappingCanBeApplied(NameMapping nameMapping, bool throwIfInvalid)
+        {
+            if (nameMapping.IsAugmentation)
+            {
+                return true;
+            }
+            bool canBeApplied = true;
+            var allNames = new List<string>(nameMapping.OldNames);
+            allNames.Add(nameMapping.NewName);
+            var foundNames = allNames.Where(name => Structures.ContainsKey(name)).ToList();
+            if (foundNames.Count > 1)
+            {
+                var message = $"Subject {Metadata.SubjectId}: unable to perform the renaming from '{string.Join(",", nameMapping.OldNames)}' to '{nameMapping.NewName}': "
+                    + $"structures with names {string.Join(",", foundNames)} already exist.";
+                if (throwIfInvalid)
+                {
+                    throw new InvalidOperationException(message);
+                }
+                else
+                {
+                    Trace.TraceError(message);
+                    canBeApplied = false;
+                }
+            }
+            return canBeApplied;
+        }
+
+        /// <summary>
+        /// Checks if all structures given in the argument are present. If they are not present, an all-empty
+        /// mask will be added for the structure in question.
+        /// </summary>
+        /// <param name="structuresToAdd"></param>
+        public void AddEmptyStructures(IEnumerable<string> structuresToAdd)
+        {
+            if (structuresToAdd == null)
+            {
+                return;
+            }
+            foreach (var name in structuresToAdd)
+            {
+                if (!Structures.ContainsKey(name))
+                {
+                    _structures.Add(name, Volume.CreateSameSize<byte>());
+                }
+            }
+        }
+
+        /// <summary>
+        /// Adds a structure with the given name and mask. Throws an <see cref="InvalidOperationException"/>
+        /// if a structure of that name is already present.
+        /// </summary>
+        /// <param name="structureName">The name of the structure to add.</param>
+        /// <param name="volume">The binary mask that represents the structure.</param>
+        public void Add(string structureName, Volume3D<byte> volume)
+        {
+            if (_structures.ContainsKey(structureName))
+            {
+                throw new InvalidOperationException($"There is already a structure with name '{structureName}'");
+            }
+
+            _structures.Add(structureName, volume);
+        }
+
+        /// <summary>
+        /// Removes the structure with the given name. Throws an <see cref="InvalidOperationException"/>
+        /// if a structure of that name is not already present.
+        /// </summary>
+        /// <param name="structureName">The name of the structure to add.</param>
+        /// <param name="volume">The binary mask that represents the structure.</param>
+        public void Remove(string structureName)
+        {
+            if (!_structures.ContainsKey(structureName))
+            {
+                throw new InvalidOperationException($"There is no structure with name '{structureName}'");
+            }
+
+            _structures.Remove(structureName);
+        }
+
+        /// <summary>
+        /// Cr
