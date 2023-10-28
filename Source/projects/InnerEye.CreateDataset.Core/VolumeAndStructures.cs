@@ -523,4 +523,34 @@
         }
 
         /// <summary>
-        /// Cr
+        /// Creates a new instance of <see cref="VolumeAndStructures"/> where image resampling has been applied to both
+        /// the image volume and all of the structures, to achieve the given voxel spacing.
+        /// If the voxel spacing is missing or has no elements, the present object is returned unchanged.
+        /// </summary>
+        /// <param name="spacingMillimeters">The desired voxel spacing that the result should have.</param>
+        /// <returns></returns>
+        public VolumeAndStructures GeometricNormalization(double[] spacingMillimeters)
+        {
+            if (spacingMillimeters.IsNullOrEmpty())
+            {
+                return this;
+            }
+
+            if (spacingMillimeters.Length != 3)
+            {
+                throw new ArgumentException("Spacing must be given with exactly 3 values.", nameof(spacingMillimeters));
+            }
+
+            var geoNorm = new GeometricNormalizationParameters
+            {
+                StandardiseSpacings = spacingMillimeters,
+                MedianFilterRadius = 0
+            };
+            var newVolume = CreateDataset.GeometricNormalization.StandardiseLinear(Volume, geoNorm);
+            var newStructures = new Dictionary<string, Volume3D<byte>>();
+            Structures.ForEach(keyValue => 
+                newStructures.Add(keyValue.Key, CreateDataset.GeometricNormalization.StandardiseNearest(keyValue.Value, geoNorm)));
+            return new VolumeAndStructures(newVolume, newStructures, Metadata);
+        }
+    }
+}
