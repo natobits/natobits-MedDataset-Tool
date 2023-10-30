@@ -43,4 +43,53 @@
       </PropertyGroup>
     </When>
     <Otherwise>
-      <PropertyGroup Condition=" '$
+      <PropertyGroup Condition=" '$(FSharpTargetsPath)' == '' AND Exists('$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\FSharp\Microsoft.FSharp.Targets') ">
+        <FSharpTargetsPath>$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\FSharp\Microsoft.FSharp.Targets</FSharpTargetsPath>
+      </PropertyGroup>
+    </Otherwise>
+  </Choose>
+  <Import Project="$(FSharpTargetsPath)" />
+  <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="VolumeDimensions.fs" />
+    <Compile Include="DatasetFile.fs" />
+    <Compile Include="ActivePatterns.fs" />
+    <Compile Include="SubjectFiles.fs" />
+    <Compile Include="Dataset.fs" />
+    <Content Include="packages.config" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="FSharp.Core">
+      <HintPath>..\..\thirdparty\packages\FSharp.Core.4.7.2\lib\net45\FSharp.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="mscorlib" />
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\..\thirdparty\packages\Newtonsoft.Json.12.0.3\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.Numerics" />
+    <ProjectReference Include="..\InnerEye.CreateDataset.Volumes\InnerEye.CreateDataset.Volumes.csproj">
+      <Name>InnerEye.CreateDataset.Volumes</Name>
+      <Project>{12416238-4311-4d15-a2d9-4f3ed7771244}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <ProjectReference Include="..\MedLib.IO\MedLib.IO.csproj">
+      <Name>MedLib.IO</Name>
+      <Project>{97046b3e-6de6-4a84-946d-17ba956411dd}</Project>
+      <Private>True</Private>
+    </ProjectReference>
+    <Reference Include="System.ValueTuple">
+      <HintPath>..\..\thirdparty\packages\System.ValueTuple.4.5.0\lib\net461\System.ValueTuple.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
+  </ItemGroup>
+  <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
+       Other similar extension points exist, see Microsoft.Common.targets.
+  <Target Name="BeforeBuild">
+  </Target>
+  <Target Name="AfterBuild">
+  </Target>
+  -->
+</Project>
