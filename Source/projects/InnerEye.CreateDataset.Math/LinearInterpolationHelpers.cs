@@ -100,4 +100,159 @@
             int contour2Slice, 
             int interpolationSlice)
         {
-            v
+            var result = new List<ContourPolygon>();
+
+            var minContours = contour1;
+            var maxContours = contour2;
+
+            var switched = false;
+
+            // Switch contours to make sure we know which slice has the most contours on
+            if (minContours.Count > maxContours.Count)
+            {
+                minContours = contour2;
+                maxContours = contour1;
+
+                switched = true;
+            }
+
+            // Using the slice with the most contours, we need to find the closest contour on the next slice to every contour on this slice
+            foreach (var currentContour in maxContours)
+            {
+                var closestContour = FindClosestContour(currentContour, minContours);
+
+                if (closestContour != null)
+                {
+                    var newContours = LinearInterpolate(currentContour.ContourPoints, switched ? contour1Slice : contour2Slice, closestContour.Value.ContourPoints, switched ? contour2Slice : contour1Slice, interpolationSlice);
+                    result.Add(new ContourPolygon(newContours, 0));
+                }
+            }
+
+            return result;
+        }
+
+        private static bool IsNullOrEmpty(this ContourPolygon contour)
+        {
+            return contour.ContourPoints == null || contour.Length == 0;
+        }
+
+        /// <summary>
+        /// Calculates the squared distance between two points.
+        /// </summary>
+        /// <param name="point1"></param>
+        /// <param name="point2"></param>
+        /// <returns></returns>
+        private static double CalculateSquaredDistance(PointF point1, PointF point2)
+            => point1.Subtract(point2).LengthSquared();
+
+        /// <summary>
+        /// Using the contour we find the next closest contour in the list of contours.
+        /// This done by taking the first point in each contour and doing a distance calculation.
+        /// </summary>
+        /// <param name="contour"></param>
+        /// <param name="contours">The list of contours.</param>
+        /// <returns>The closest contour from the list of supplied contours.</returns>
+        private static ContourPolygon? FindClosestContour(ContourPolygon contour, IReadOnlyList<ContourPolygon> contours)
+        {
+            if (contour.ContourPoints == null)
+            {
+                throw new ArgumentNullException(nameof(contour.ContourPoints));
+            }
+
+            if (contour.Length == 0)
+            {
+                throw new ArgumentException("The contour does not have any points.");
+            }
+
+            var currentContourPoint = contour.ContourPoints[0];
+            var minDistance = double.MaxValue;
+
+            ContourPolygon? minDistanceContour = null;
+
+            foreach (var nextContour in contours)
+            {
+                if (!contour.IsNullOrEmpty())
+                {
+                    var nextContourPoint = nextContour.ContourPoints[0];
+                    var squaredDistance = CalculateSquaredDistance(currentContourPoint, nextContourPoint);
+
+                    if (squaredDistance < minDistance)
+                    {
+                        minDistance = squaredDistance;
+                        minDistanceContour = nextContour;
+                    }
+                }
+            }
+
+            return minDistanceContour;
+        }
+
+        /// <summary>
+        /// Using the ordered lists of polygons we calculate a new polygon at a certain distance away. 
+        /// This distance is calculated using the supplied slice number, where the new slice index is minSliceIndex < newSliceIndex < maxSliceIndex
+        /// </summary>
+        /// <param name="polygon1"></param>
+        /// <param name="polygon1SliceIndex"></param>
+        /// <param name="polygon2"></param>
+        /// <param name="polygon2SliceIndex"></param>
+        /// <param name="newSliceIndex">The slice index for the new inteprolated contours. This slice index must be between the two polygon slices.</param>
+        /// <returns>The interpolated contour for the new slice.</returns>
+        public static PointF[] LinearInterpolate(
+            PointF[] polygon1,
+            int polygon1SliceIndex,
+            PointF[] polygon2,
+            int polygon2SliceIndex,
+            int newSliceIndex)
+        {
+            if (polygon1 == null || polygon2 == null)
+            {
+                throw new ArgumentNullException("The input polygons should not be null.");
+            }
+
+            if (polygon1SliceIndex == polygon2SliceIndex)
+            {
+                throw new ArgumentException("The polygons must be on different slices.");
+            }
+
+            if (polygon1.Length == 0 || polygon2.Length == 0)
+            {
+                throw new ArgumentException("The input polygons must have a length greater than 0.");
+            }
+
+            var minPolygon = polygon1;
+            var maxPolygon = polygon2;
+
+            var minPolygonCountSliceIndex = polygon1SliceIndex;
+            var maxPolygonCountSliceIndex = polygon2SliceIndex;
+
+            if (minPolygon.Length > maxPolygon.Length)
+            {
+                minPolygon = polygon2;
+                maxPolygon = polygon1;
+
+                minPolygonCountSliceIndex = polygon2SliceIndex;
+                maxPolygonCountSliceIndex = polygon1SliceIndex;
+            }
+
+            if (newSliceIndex <= Math.Min(polygon1SliceIndex, polygon2SliceIndex) || newSliceIndex >= Math.Max(polygon1SliceIndex, polygon2SliceIndex))
+            {
+                throw new ArgumentException($"The new slice index must exist between the two polygon slices.");
+            }
+
+            var distance = (newSliceIndex - minPolygonCountSliceIndex) / (double)(maxPolygonCountSliceIndex - minPolygonCountSliceIndex);
+            var result = new PointF[minPolygon.Length];
+            var minLengthDouble = (double)minPolygon.Length;
+            var maxLengthDouble = (double)maxPolygon.Length;
+            for (var i = 1; i <= minPolygon.Length; i++)
+            {
+                var polygon1Value = minPolygon[i - 1];
+                var polygon2Value = maxPolygon[(int)Math.Round(i / minLengthDouble * maxLengthDouble) - 1];
+
+                result[i - 1] = PointExtensions.FromDouble(polygon1Value.X + distance * (polygon2Value.X - polygon1Value.X),
+                                       polygon1Value.Y + distance * (polygon2Value.Y - polygon1Value.Y));
+            }
+
+            return result;
+        }
+    }
+}
