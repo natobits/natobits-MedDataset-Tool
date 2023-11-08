@@ -86,4 +86,41 @@
             }
             return
                 Enumerable.Zip(basis, other, relativeChange)
-      
+                .Max();
+        }
+
+        /// <summary>
+        /// Returns the L\infty-norm of the difference between two vectors, which is
+        /// equivalent to the maximum absolute difference between the elements of the two
+        /// vectors.
+        /// </summary>
+        /// <param name="left">Should not be empty, and should have the same number of elements as right.</param>
+        /// <param name="right">Should not be empty, and should have the same number of elements as left.</param>
+        /// <returns></returns>
+        private static double GetLInfNorm(double[] left, double[] right)
+        {
+            return
+                Enumerable.Zip(left, right, (l, r) => Math.Abs(l - r))
+                .Max();
+        }
+
+        /// The maximum relative difference allowed between Spacings of two volumes
+        /// such that they are still considered equal.
+        // This is duplicated from InnerEye.CreateDataset.Data:Volume3DProperties:
+        // MaximumRelativeDifference
+        private const double MaximumRelativeDifferenceForSpacing = 1.0e-4;
+
+        /// The maximum absolute difference allowed between elements of Origins of two volumes,
+        /// such that they are still considered equal.
+        // This is duplicated from InnerEye.CreateDataset.Data:Volume3DProperties:
+        // MaximumAbsoluteDifferenceForOrigin
+        private const double MaximumAbsoluteDifferenceForOrigin = 1.0e-3;
+
+        /// The maximum absolute difference allowed between elements of Directions of two volumes,
+        /// such that they are still considered equal.
+        // This is duplicated from InnerEye.CreateDataset.Data:Volume3DProperties:
+        // MaximumAbsoluteDifferenceForDirection
+        private const double MaximumAbsoluteDifferenceForDirection = 1.0e-4;
+
+    }
+}
