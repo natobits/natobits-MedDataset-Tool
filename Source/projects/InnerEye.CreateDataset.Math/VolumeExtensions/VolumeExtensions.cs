@@ -882,3 +882,672 @@
             var output = input.CreateSameSize<byte>(0);
 
             var dimX = output.DimX;
+            var dimY = output.DimY;
+            var dimZ = output.DimZ;
+            var dimXY = output.DimXY;
+            var rangeX = dimX / 2;
+            var dimX_Minus_1 = dimX - 1;
+            for (var z = 0; z < dimZ; ++z)
+            {
+                for (var y = 0; y < dimY; ++y)
+                {
+                    for (var x = 0; x < rangeX; ++x)
+                    {
+                        var index = x + y * dimX + z * dimXY;
+                        var mirror = dimX_Minus_1 - x + y * dimX + z * dimXY;
+                        var value = (byte)Math.Abs(input[index] - input[mirror]);
+                        output[index] = value;
+                        output[mirror] = value;
+                    }
+                }
+            }
+
+            return output;
+        }
+
+        /// <summary>
+        /// Creates an output volume that contains the given region of the input volume.
+        /// </summary>
+        /// <param name="image">The image to process.</param>
+        /// <param name="region">The region of the input image that should be in the returned image.</param>
+        /// <returns></returns>
+        public static Volume3D<T> Crop<T>(this Volume3D<T> image, Region3D<int> region)
+        {
+            if (region.IsEmpty())
+            {
+                throw new ArgumentException("The cropping region must be non-empty.", nameof(region));
+            }
+
+            if (!region.InsideOf(image.GetFullRegion()))
+            {
+                throw new ArgumentException("The cropping region must be fully inside the image.", nameof(region));
+            }
+
+            var startX = region.MinimumX;
+            var startY = region.MinimumY;
+            var startZ = region.MinimumZ;
+            var dimX = region.LengthX();
+            var dimY = region.LengthY();
+            var dimZ = region.LengthZ();
+            var origin = image.Transform.PixelToPhysical(new Point3D(startX, startY, startZ));
+            var output = new Volume3D<T>(dimX, dimY, dimZ,
+                image.SpacingX, image.SpacingY, image.SpacingZ,
+                origin, image.Direction);
+            var inputBufferArray = image.Array;
+            var outputBufferArray = output.Array;
+
+            // Copy the data, line by line
+            for (var z = 0; z < dimZ; ++z)
+            {
+                var inputPage = (z + startZ) * image.DimXY;
+                var outputPage = z * output.DimXY;
+                for (var y = 0; y < dimY; ++y)
+                {
+                    var inputLine = inputPage + (y + startY) * image.DimX + startX;
+                    var outputLine = outputPage + y * output.DimX;
+                    Array.Copy(inputBufferArray, inputLine, outputBufferArray, outputLine, dimX);
+                }
+            }
+            return output;
+
+        }
+
+        /// <summary>
+        /// Computes the boundary of the structure.
+        /// </summary>
+        /// <param name="structure">A structure: values are positive for voxels in the structure, otherwise zero</param>
+        /// <param name="withEdges">Whether voxels on the edges and sides of the region are to be set, i.e.
+        /// whether we assume the structure does not go beyond the boundaries of the space.</param>
+        /// <returns>A volume of the same size as the input, with values set to 1 for voxels on the boundary of the inputImage, 0 otherwise.</returns>
+        public static Volume3D<byte> MaskBoundaries(this Volume3D<byte> structure, bool withEdges)
+        {
+            int dimX = structure.DimX;
+            int dimY = structure.DimY;
+            int dimZ = structure.DimZ;
+            var output = structure.CreateSameSize<byte>();
+            Parallel.For(0, dimZ, (int z) =>
+            {
+                for (int y = 0; y < dimY; ++y)
+                {
+                    for (int x = 0; x < dimX; ++x)
+                    {
+                        // Voxels on the edge are not checked as they are considered as boundary by default when edges are being considered
+                        if (structure.IsEdgeVoxel(x, y, z))
+                        {
+                            if (withEdges)
+                            {
+                                output[x, y, z] = (byte)(structure[x, y, z] > 0 ? 1 : 0);
+                            }
+                        }
+                        else
+                        {
+                            output[x, y, z] = (byte)(IsBoundaryVoxel(structure, x, y, z) ? 1 : 0);
+                        }
+                    }
+                }
+            });
+            return output;
+        }
+
+        /// <summary>
+        /// Returns whether (x,y,z) (which must not be on the edge of the space itself) is on the boundary of
+        /// the structure. This is the case when intensity is positive at (x,y,z) and intensity is non-positive at any
+        /// of the immediate 26 neighbours of (x,y,z). x, y and z must all be in the interior of the region.
+        /// </summary>
+        /// <param name="structure"></param>
+        /// <param name="x">between 1 and structure.DimX - 1</param>
+        /// <param name="y">between 1 and structure.DimY - 1</param>
+        /// <param name="z">between 1 and structure.DimZ - 1</param>
+        /// <returns>Whether the voxel at (x,y,z) is on the boundary of the structure</returns>
+        private static bool IsBoundaryVoxel(Volume3D<byte> structure, int x, int y, int z)
+        {
+            if (structure[x, y, z] <= 0)
+            {
+                return false;
+            }
+            for (int zz = z - 1; zz <= z + 1; zz++)
+            {
+                for (int yy = y - 1; yy <= y + 1; yy++)
+                {
+                    for (int xx = x - 1; xx <= x + 1; xx++)
+                    {
+                        if (structure[xx, yy, zz] <= 0)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Performs a convolution on the volume using a median filter. A Median filter inspects a neighborhood of given size,
+        /// computes the median value of those, and replaces the voxel with the median. The neighborhood
+        /// is [x-radius, x+radius], same across y and z dimension. A radius of 1 will create a neighborhood
+        /// of size 27 voxels.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="input">The volume to smooth.</param>
+        /// <param name="radius">The size of the neighborhood, radius >= 0</param>
+        /// <param name="merge2Values">A function that merges 2 instances of the volume's datatype,
+        /// when computing the median of an even number of voxels.</param>
+        /// <returns></returns>
+        public static Volume3D<T> MedianSmooth<T>(this Volume3D<T> input, int radius, Func<T, T, T> merge2Values)
+        {
+            var output = input.CreateSameSize<T>();
+
+            int nbhoodLen = 2 * radius + 1;
+            int nbhoodSize = nbhoodLen * nbhoodLen * nbhoodLen;
+
+            int dimX = input.DimX;
+            int dimY = input.DimY;
+            int dimZ = input.DimZ;
+            int dimXY = input.DimXY;
+            int xlim = dimX - radius;
+            int ylim = dimY - radius;
+            int zlim = dimZ - radius;
+
+            // Loop through all voxels in image and find median of neighboorhood for each.
+            Parallel.For(0, dimX, x =>
+            {
+                // x-limits of neighborhood to lie inside image.
+                int xxmin = x >= radius ? x - radius : 0;
+                int xxmax = x < xlim ? x + radius : dimX - 1;
+
+                // The voxel values in the neighborhood. The maximum number of voxels is nbhoodSize,
+                // but can be less when working near volume boundaries.
+                var nbhoodVals = new T[nbhoodSize];
+
+                for (int y = 0; y < dimY; y++)
+                {
+                    // y-limits of neighborhood to lie inside image.
+                    int yymin = y >= radius ? y - radius : 0;
+                    int yymax = y < ylim ? y + radius : dimY - 1;
+
+                    for (int z = 0; z < dimZ; z++)
+                    {
+                        // z-limits of neighborhood to lie inside image.
+                        int zzmin = z >= radius ? z - radius : 0;
+                        int zzmax = z < zlim ? z + radius : dimZ - 1;
+
+                        // Index of current voxel.
+                        var index = x + y * dimX + z * dimXY;
+
+                        // Loop through neighborhood voxels and store intensitites in nbhoodVals.
+                        // When loop exits, nbhoodIndex equals to the effective nbhoodVals size.
+                        int nbhoodIndex = 0;
+                        for (int xx = xxmin; xx <= xxmax; xx++)
+                            for (int yy = yymin; yy <= yymax; yy++)
+                                for (int zz = zzmin; zz <= zzmax; zz++)
+                                    nbhoodVals[nbhoodIndex++] = input[xx + yy * dimX + zz * dimXY];
+
+                        // Sort neighborhood intensities and assign median to current voxel.
+                        Array.Sort(nbhoodVals, 0, nbhoodIndex);
+                        int mid = nbhoodIndex / 2;
+                        T median;
+                        if (nbhoodIndex % 2 == 1)
+                        {
+                            // size of neighborhood is odd: Take middle value
+                            median = nbhoodVals[mid];
+                        }
+                        else
+                        {
+                            median = merge2Values(nbhoodVals[mid - 1], nbhoodVals[mid]);
+                        }
+                        output[index] = median;
+                    }
+                }
+            });
+            return output;
+        }
+
+        /// <summary>
+        /// Performs a convolution on the volume using a median filter. Median filter inspects a neighborhood of given size,
+        /// computes the median value of those, and replaces the voxel with the median. The neighborhood
+        /// is [x-radius, x+radius], same across y and z dimension. A radius of 1 will create a neighborhood
+        /// of size 27 voxels.
+        /// </summary>
+        public static Volume3D<byte> MedianSmooth(this Volume3D<byte> input, int radius)
+        {
+            // Average 2 values via direct cast here. The two values to average will always be integral,
+            // the average of the two will be either already integral (average of 2 and 4 is 3)
+            // or the average is exactly between two integers. Hence, rounding up or down does not make a difference.
+            return input.MedianSmooth(radius, (b1, b2) => (byte)(((float)b1 + b2) / 2));
+        }
+
+        /// <summary>
+        /// Performs a convolution on the volume using a median filter. A Median filter inspects a neighborhood of given size,
+        /// computes the median value of those, and replaces the voxel with the median. The neighborhood
+        /// is [x-radius, x+radius], same across y and z dimension. A radius of 1 will create a neighborhood
+        /// of size 27 voxels.
+        /// </summary>
+        public static Volume3D<short> MedianSmooth(this Volume3D<short> input, int radius)
+        {
+            return input.MedianSmooth(radius, (b1, b2) => (short)(((float)b1 + b2) / 2));
+        }
+
+        /// <summary>
+        /// Performs a convolution on the volume using a median filter. A Median filter inspects a neighborhood of given size,
+        /// computes the median value of those, and replaces the voxel with the median. The neighborhood
+        /// is [x-radius, x+radius], same across y and z dimension. A radius of 1 will create a neighborhood
+        /// of size 27 voxels.
+        /// </summary>
+        public static Volume3D<float> MedianSmooth(this Volume3D<float> input, int radius)
+        {
+            return input.MedianSmooth(radius, (b1, b2) => (b1 + b2) / 2);
+        }
+
+        /// <summary>
+        /// Creates a new volume of the same size as the present volume, by mapping each voxel through the
+        /// given function. Processing can be done on multiple CPU threads.
+        /// </summary>
+        /// <typeparam name="TIn"></typeparam>
+        /// <typeparam name="TOut"></typeparam>
+        /// <param name="volume"></param>
+        /// <param name="func"></param>
+        /// <param name="maxThreads">The maximum number of CPU threads that will be used for processing. If null,
+        /// do not use parallel processing.</param>
+        /// <returns></returns>
+        public static Volume3D<TOut> Map<TIn, TOut>(this Volume3D<TIn> volume, int? maxThreads, Func<TIn, TOut> func)
+        {
+            var output = volume.CreateSameSize<TOut>();
+            volume.Array.MapToArray(output.Array, maxThreads, func);
+            return output;
+        }
+
+        /// <summary>
+        /// Creates a new volume of the same size as the present volume, by mapping each voxel through the
+        /// given function.
+        /// </summary>
+        /// <typeparam name="TIn"></typeparam>
+        /// <typeparam name="TOut"></typeparam>
+        /// <param name="volume"></param>
+        /// <param name="func"></param>
+        /// <returns></returns>
+        public static Volume2D<TOut> Map<TIn, TOut>(this Volume2D<TIn> volume, Func<TIn, TOut> func)
+        {
+            var output = volume.CreateSameSize<TOut>();
+            volume.Array.MapToArray(output.Array, null, func);
+            return output;
+        }
+
+        /// <summary>
+        /// Creates a new volume of the same size as the present volume, by mapping each voxel through the
+        /// given function. Processing is done on as many CPU threads as given by <see cref="Environment.ProcessorCount"/>.
+        /// </summary>
+        /// <typeparam name="TIn"></typeparam>
+        /// <typeparam name="TOut"></typeparam>
+        /// <param name="volume"></param>
+        /// <param name="func"></param>
+        /// <returns></returns>
+        public static Volume3D<TOut> Map<TIn, TOut>(this Volume3D<TIn> volume, Func<TIn, TOut> func)
+            => volume.Map(Environment.ProcessorCount, func);
+
+        /// <summary>
+        /// Creates a new volume of the same size as the present volume, by mapping each voxel through the
+        /// given function. The function arguments are the voxel value and its index in the input and output volume.
+        /// </summary>
+        /// <typeparam name="TIn"></typeparam>
+        /// <typeparam name="TOut"></typeparam>
+        /// <param name="volume"></param>
+        /// <param name="func"></param>
+        /// <param name="maxThreads">The maximum number of CPU threads that will be used for processing. If null,
+        /// do not use parallel processing.</param>
+        /// <returns></returns>
+        public static Volume3D<TOut> MapIndexed<TIn, TOut>(this Volume3D<TIn> volume, int? maxThreads, Func<TIn, int, TOut> func)
+        {
+            var output = volume.CreateSameSize<TOut>();
+            volume.Array.MapToArrayIndexed(output.Array, maxThreads, func);
+            return output;
+        }
+
+        /// <summary>
+        /// Creates a new volume of the same size as the present volume, by mapping each voxel through the
+        /// given function. The function arguments are the voxel value and its index in the input and output volume.
+        /// </summary>
+        /// <typeparam name="TIn"></typeparam>
+        /// <typeparam name="TOut"></typeparam>
+        /// <param name="volume"></param>
+        /// <param name="func"></param>
+        /// <param name="maxThreads">The maximum number of CPU threads that will be used for processing. If null,
+        /// do not use parallel processing.</param>
+        /// <returns></returns>
+        public static Volume2D<TOut> MapIndexed<TIn, TOut>(this Volume2D<TIn> volume, Func<TIn, int, TOut> func)
+        {
+            var output = volume.CreateSameSize<TOut>();
+            volume.Array.MapToArrayIndexed(output.Array, null, func);
+            return output;
+        }
+
+        /// <summary>
+        /// Converts a floating point volume that represents a class posterior, with
+        /// voxel values between 0.0 and 1.0, to a byte volume with voxel values between 0 and 255.
+        /// An input voxel value of 1.0 would be mapped to 255 in the output.
+        /// Any values at or below 0.0 would become 0, anything exceeding 1.0 in the input will become 255.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <param name="maxThreads">The maximum number of CPU threads that will be used for processing. If null,
+        /// do not use parallel processing.</param>
+        /// <returns></returns>
+        public static Volume3D<byte> PosteriorToByte(this Volume3D<float> volume, int? maxThreads)
+        {
+            return volume.Map(maxThreads, Converters.PosteriorToByte);
+        }
+
+        /// <summary>
+        /// Creates a region that covers the full area of the input image.
+        /// </summary>
+        /// <param name="image"></param>
+        /// <returns></returns>
+        public static Region3D<int> GetFullRegion<T>(this Volume3D<T> image)
+        {
+            return new Region3D<int>(0, 0, 0, image.DimX - 1, image.DimY - 1, image.DimZ - 1);
+        }
+
+        /// <summary>
+        /// Returns a Region3D object encompassing the foreground voxels in the union of
+        /// masks volumeA and volumeB
+        /// </summary>
+        /// <param name="wanted1">Mask to be encompassed by bounds</param>
+        /// <param name="wanted2">Mask to be encompassed by bounds</param>
+        public static Region3D<int> GetCombinedForegroundRegion(this Volume3D<byte> volumeA, Volume3D<byte> volumeB)
+        {
+            if (volumeA == null)
+            {
+                throw new ArgumentNullException(nameof(volumeA));
+            }
+            else if (volumeB == null)
+            {
+                throw new ArgumentNullException(nameof(volumeB));
+            }
+            else
+            {
+                // get the foreground regions for each of the volumes
+                var interestedRegionVolumeA = volumeA.GetInterestRegion();
+                var interestedRegionVolumeB = volumeB.GetInterestRegion();
+
+                // return the region that covers both of the ROI bounds
+                return new Region3D<int>(
+                    minimumX: Math.Min(interestedRegionVolumeA.MinimumX, interestedRegionVolumeB.MinimumX),
+                    minimumY: Math.Min(interestedRegionVolumeA.MinimumY, interestedRegionVolumeB.MinimumY),
+                    minimumZ: Math.Min(interestedRegionVolumeA.MinimumZ, interestedRegionVolumeB.MinimumZ),
+                    maximumX: Math.Max(interestedRegionVolumeA.MaximumX, interestedRegionVolumeB.MaximumX),
+                    maximumY: Math.Max(interestedRegionVolumeA.MaximumY, interestedRegionVolumeB.MaximumY),
+                    maximumZ: Math.Max(interestedRegionVolumeA.MaximumZ, interestedRegionVolumeB.MaximumZ));
+            }
+        }
+
+        /// <summary>
+        /// Computes the start index and number of pixels to copy when copying from a source image
+        /// onto a destination image, when the source image should be place at position "start" in the
+        /// destination image.
+        /// </summary>
+        /// <param name="sourceDim">The width of the source image</param>
+        /// <param name="destDim">The width of the destination image</param>
+        /// <param name="start">The start position, as a position in the destination image.</param>
+        /// <returns>The start position in the source image, and the number of pixels/voxels to copy.</returns>
+        private static Tuple<int, int> GetAdjustedPositions(int start, int sourceDim, int destDim)
+        {
+            if (start > 0)
+            {
+                // DDDDDDDDD     // Destination image to copy into
+                //      SSSSSSS  // Source image to copy from
+                //      X        // Start position, relative to destination image
+                // |       |     // Boundaries of the destination image
+                // DDDDDSSSS     // Paste result
+                return Tuple.Create(0, Math.Min(sourceDim, destDim - start));
+            }
+            //      DDDDDDDDD     // Destination image to copy into
+            //  SSSSSSS           // Source image to copy from
+            //  X                 // Start position, relative to destination image
+            //      |       |     // Boundaries of the destination image
+            //      SSSDDDDDD     // Paste result
+            return Tuple.Create(-start, Math.Min(sourceDim, destDim + start));
+        }
+
+        /// <summary>
+        /// Copies the contents of the present (source) image into the destination image at the given position.
+        /// The target position is specified as coordinates inside the destination image: The point (0, 0, 0)
+        /// of the source image will be placed at (startX, startY, startZ) in the destination image.
+        /// The target position can be outside of the destination image.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <param name="destination"></param>
+        /// <param name="startX"></param>
+        /// <param name="startY"></param>
+        /// <param name="startZ"></param>
+        public static void PasteOnto(this Volume3D<byte> source, Volume3D<byte> destination, int startX, int startY, int startZ)
+        {
+            // Start position in the source image, and length of region to copy out.
+            var posX = GetAdjustedPositions(startX, source.DimX, destination.DimX);
+            var posY = GetAdjustedPositions(startY, source.DimY, destination.DimY);
+            var posZ = GetAdjustedPositions(startZ, source.DimZ, destination.DimZ);
+
+            var srcBufferArray = source.Array;
+            var destBufferArray = destination.Array;
+
+            foreach (var z in Enumerable.Range(posZ.Item1, posZ.Item2))
+            {
+                var srcPage = z * source.DimXY;
+                var destPage = (z + startZ) * destination.DimXY;
+                foreach (var y in Enumerable.Range(posY.Item1, posY.Item2))
+                {
+                    var srcLine = srcPage + y * source.DimX + posX.Item1;
+                    var destLine = destPage + (y + startY) * destination.DimX + posX.Item1 + startX;
+                    Array.Copy(srcBufferArray, srcLine, destBufferArray, destLine, posX.Item2);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Converts a Float32 volume to an Int16 volume, if all voxel values are in the correct range for Int16, and if
+        /// they appear to contain integer values after rounding to 5 digits. An input value of 1.0000001 would be considered
+        /// OK, and converted to (short)1. If any of the input voxels is outside the Int16 range, or appears to be a fractional
+        /// value, throws an <see cref="ArgumentException"/>.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <param name="maxThreads">The maximum number of CPU threads that will be used for processing. If null,
+        /// do not use parallel processing.</param>
+        /// <returns></returns>
+        public static Volume3D<short> TryConvertToInt16(this Volume3D<float> source, int? maxThreads)
+        {
+            return source.MapIndexed(maxThreads, Converters.TryConvertToInt16);
+        }
+
+        /// <summary>
+        /// Creates a volume that contains the sagittal mirror image of the present volume
+        /// (i.e., swapping left and right).
+        /// This assumes that sagitall mirroring means mirroring across the X dimension of the volume.
+        /// </summary>
+        /// <param name="input">The volume to mirror.</param>
+        /// <returns></returns>
+        public static void SagittalMirroringInPlace<T>(this Volume3D<T> image)
+        {
+            if (image == null)
+            {
+                return;
+            }
+
+            var dimX = image.DimX;
+            var dimY = image.DimY;
+            var dimZ = image.DimZ;
+            var dimXy = image.DimXY;
+            var rangeX = dimX / 2;
+            var dimXMinus1 = dimX - 1;
+            Parallel.For(0, dimZ,
+                z =>
+                {
+                    var page = z * dimXy;
+                    for (var y = 0; y < dimY; ++y)
+                    {
+                        var line = page + y * dimX;
+                        for (var x = 0; x < rangeX; ++x)
+                        {
+                            var index = x + line;
+                            var mirrorIndex = dimXMinus1 - x + line;
+                            var temp = image[mirrorIndex];
+                            image[mirrorIndex] = image[index];
+                            image[index] = temp;
+                        }
+                    }
+                });
+        }
+
+        /// <summary>
+        /// Creates an empty <see cref="Volume2D"/> that is sized such that it can hold a slice of the
+        /// present volume, when the slice is of given type (orientation). 
+        /// Note that these slices are NOT extracted
+        /// according to the patient-centric coordinate system, but in the coordinate system of the volume
+        /// alone.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <typeparam name="TK"></typeparam>
+        /// <param name="volume">The volume from which the slice should be extracted.</param>
+        /// <param name="sliceType">The type (orientation) of the slice that should be extracted.</param>
+        /// <returns></returns>
+        public static Volume2D<TK> AllocateSlice<T, TK>(this Volume3D<T> volume, SliceType sliceType)
+            => ExtractSlice.AllocateSlice<T,TK>(volume, sliceType);
+
+        /// <summary>
+        /// Extracts a slice of a chosen type (orientation) from the present volume, and returns it as a
+        /// <see cref="Volume2D"/> instance of correct size. Note that these slices are NOT extracted
+        /// according to the patient-centric coordinate system, but in the coordinate system of the volume
+        /// alone.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="volume"></param>
+        /// <param name="sliceType"></param>
+        /// <param name="index"></param>
+        /// <returns></returns>
+        public static Volume2D<T> Slice<T>(this Volume3D<T> volume, SliceType sliceType, int index)
+            => ExtractSlice.Slice(volume, sliceType, index);
+
+        /// <summary>
+        /// Multiplies the present volume by a constant, such that if the input image 
+        /// has range [0, 255], the result image will have voxel values in the range [0, <paramref name="maxOutputRange"/>].
+        /// </summary>
+        /// <param name="image"></param>
+        /// <param name="geodesicGamma">The maximum value that voxels can have in the result image.</param>
+        /// <returns></returns>
+        public static Volume3D<float> ScaleToFloatRange(this Volume3D<byte> image, float maxOutputRange)
+        {
+            if (maxOutputRange <= 0)
+            {
+                throw new ArgumentOutOfRangeException("The parameter must be larger than zero.", nameof(maxOutputRange));
+            }
+
+            var scale = maxOutputRange / byte.MaxValue;
+            return image.Map(value => scale * value);
+        }
+
+        /// <summary>
+        /// Returns a volume that is the voxel-wise subtraction of the arguments.
+        /// result[i] == vol1[i] - vol2[i]
+        /// </summary>
+        /// <param name="vol1"></param>
+        /// <param name="vol2"></param>
+        /// <returns></returns>
+        public static Volume3D<float> Subtract(this Volume3D<float> vol1, Volume3D<float> vol2)
+        {
+            return vol1.MapIndexed(null, (value, index) => value - vol2[index]);
+        }
+
+        /// <summary>
+        /// Returns the index in the given sequence at which the maximum value
+        /// is attained. Indexing starts at 0 for the first element of the sequence.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="values"></param>
+        /// <returns></returns>
+        public static (int Index, T Maximum) ArgMax<T>(this IEnumerable<T> values)
+            where T: IComparable
+        {
+            if (values == null)
+            {
+                throw new ArgumentNullException(nameof(values));
+            }
+
+            var argMax = 0;
+            T maxValue = default;
+            bool any = false;
+            int index = 0;
+            foreach (var value in values)
+            {
+                if (any)
+                {
+                    if (value.CompareTo(maxValue) > 0)
+                    {
+                        maxValue = value;
+                        argMax = index;
+                    }
+                }
+                else
+                {
+                    any = true;
+                    maxValue = value;
+                    argMax = 0;
+                }
+                index++;
+            }
+
+            return any ? (argMax, maxValue) : throw new ArgumentException("The input sequence was empty.");
+        }
+
+        /// <summary>
+        /// Returns the Z-slice that contains the highest number of pixels that have the 
+        /// given foreground value.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <param name="foregroundValue"></param>
+        /// <returns></returns>
+        public static (int Z, int ForegroundPixels) SliceWithMostForeground(
+            this Volume3D<byte> volume, 
+            byte foregroundValue = ModelConstants.MaskForegroundIntensity)
+        {
+            if (volume == null)
+            {
+                throw new ArgumentNullException(nameof(volume));
+            }
+
+            var foregroundPerZ = new int[volume.DimZ];
+            volume.ParallelIterateSlices(position =>
+            {
+                var (x, y, z) = position;
+                if (volume[x, y, z] == foregroundValue)
+                {
+                    foregroundPerZ[z] += 1;
+                }
+            });
+
+            return foregroundPerZ.ArgMax();
+        }
+
+        /// <summary>
+        /// Gets the sequence of voxel with their values in an image, that fall inside the mask (that is, the 
+        /// mask value that corresponds to the voxels is not equal to zero).
+        /// This is the implementation called when both image and map are not null.
+        /// </summary>
+        /// <param name="image">The image to process.</param>
+        /// <param name="mask">The binary mask that specifies which voxels of the image should be returned.
+        /// Cannot be null.</param>
+        /// <returns></returns>
+        private static IEnumerable<T> VoxelsInsideMaskWhenImageAndMaskAreNotNull<T>(T[] imageArray, byte[] maskArray)
+        {
+            if (maskArray.Length != imageArray.Length)
+            {
+                throw new ArgumentException("The image and the mask must have the same number of voxels.", nameof(maskArray));
+            }
+
+            // Plain vanilla loop is the fastest way of iterating, 4x faster than Array.Indices()
+            for (var index = 0; index < imageArray.Length; index++)
+            {
+                if (maskArray[index] > 0)
+                {
+                    yield return imageArray[index];
+                }
+            }
+        }
+
+    }
+}
