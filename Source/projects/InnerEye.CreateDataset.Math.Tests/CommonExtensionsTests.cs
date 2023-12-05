@@ -133,4 +133,127 @@
             // Find values that are larger or equal than 1: Again, this should be all voxels.
             var region2 = volume1.GetInterestRegion(1);
             Assert.AreEqual(fullRegion, region2, "All voxels have values >= 1, the region should cover the full image.");
-           
+            var cropped = volume1.Crop(region2);
+            VolumeAssert.AssertVolumesMatch(volume1, cropped, "Cropping with the full region should return the input values.");
+            // Find values that are larger or equal than 2: Should get empty region.
+            var region3 = volume1.GetInterestRegion(2);
+            Assert.IsTrue(region3.IsEmpty(), "No voxels have values >= 2, the region should be empty.");
+        }
+
+        [Test]
+        public void CommonExtensionsCreateArray()
+        {
+            var value = 2;
+            Assert.Throws<ArgumentException>(() => GenericExtensions.CreateArray(-1, 1));
+            CollectionAssert.AreEqual(new int[0], GenericExtensions.CreateArray(0, 1));
+            CollectionAssert.AreEqual(new int[1] { value }, GenericExtensions.CreateArray(1, value));
+            var length = 3;
+            var array = new int[length];
+            array.Fill(value);
+            CollectionAssert.AreEqual(new int[] { value, value, value }, array);
+            var destination = new int[length];
+            array.CopyTo(destination);
+            CollectionAssert.AreEqual(array, destination);
+            Assert.Throws<ArgumentNullException>(() => array.CopyTo(null));
+            var wrongLength = new int[2 * length];
+            Assert.Throws<ArgumentException>(() => array.CopyTo(wrongLength));
+        }
+
+        [Test]
+        public void CommonExtensionsClipVolume()
+        {
+            var values = new short[] { -5, -4, 1, 2, 5 };
+            var image = new Volume3D<short>(values, values.Length, 1, 1, 1, 1, 1);
+            var range = MinMax.Create<short>(-4, 3);
+            image.ClipToRangeInPlace(range);
+            // Expected values: Everything that is -4 or lower should be set to -4, that's the first
+            // two voxels. Everything larger than 3 should be set to 3 - that's only the last voxels.
+            // Everything in the middle is unchanged.
+            var expected = new short[] { -4, -4, 1, 2, 3 };
+            CollectionAssert.AreEqual(expected, image.Array);
+            var invalidRange = MinMax.Create<short>(4, 3);
+            Assert.Throws<ArgumentException>(() => image.ClipToRangeInPlace(invalidRange));
+        }
+
+        /// <summary>
+        /// Test the conversion from a floating point image to a byte image.
+        /// The full range should be mapped to [0, 255].
+        /// </summary>
+        /// <param name="imageArray"></param>
+        /// <param name="expected"></param>
+        [Test]
+        // Middle value 0 would be mapped to 127.5. Converter rounds to nearest integer, gives 128.
+        [TestCase(new float[] { -10, 0, 10 }, new byte[] { 0, 128, 255 })]
+        [TestCase(new float[] { 10, 10 }, new byte[] { 0, 0 })]
+        public void CommonExtensionsScale(float[] imageArray, byte[] expected)
+        {
+            var image = imageArray.SingleLineVolume();
+            var result = image.ScaleToByteRange();
+            Assert.AreEqual(expected, result.Array);
+        }
+ 
+        /// <summary>
+        /// Test thresholding of a volume.
+        /// </summary>
+        /// <param name="imageArray"></param>
+        /// <param name="expected"></param>
+        [Test]
+        [TestCase(new short[] { -10, -1, 0, 10 }, -5, new byte[] { 0, 1, 1, 1 })]
+        [TestCase(new short[] { 0, 1, 2, 3 }, 2, new byte[] { 0, 0, 1, 1 })]
+        [TestCase(new short[] { 0, 1 }, -2, new byte[] { 1, 1 })]
+        [TestCase(new short[] { 0, 1 }, 5, new byte[] { 0, 0 })]
+        public void CommonExtensionsThreshold(short[] imageArray, short threshold, byte[] expected)
+        {
+            var image = imageArray.SingleLineVolume();
+            var result = image.Threshold(threshold);
+            Assert.AreEqual(expected, result.Array);
+        }
+
+        /// <summary>
+        /// Test scaling a volume via clamping to byte range, when range is given explicitly.
+        /// </summary>
+        /// <param name="values"></param>
+        /// <param name="min"></param>
+        /// <param name="max"></param>
+        /// <param name="expected"></param>
+        // Set scale to 0..2: All values that are outside of that should be mapped to 0/255
+        [TestCase(new double[] { -10, 0, 1, 2, 100}, 0, 2, new byte[] { 0, 0, 128, 255, 255})]
+        // Input is already in byte range: no change
+        [TestCase(new double[] { 0, 1, 255}, 0, 255, new byte[] { 0, 1, 255})]
+        // If range is invalid, return all zeros.
+        [TestCase(new double[] { 0, 1, 255}, 0, -1, new byte[] { 0, 0, 0})]
+        public void CommonExtensionsScaleToByteRange(double[] values, double min, double max, byte[] expected)
+        {
+            var minMax = MinMax.Create(min, max);
+            var volume = values.SingleLineVolume();
+            var actual = volume.ScaleToByteRange(minMax);
+            Assert.AreEqual(expected, actual.Array);
+        }
+
+        /// <summary>
+        /// Test scaling a volume via clamping to byte range, using full input range.
+        /// </summary>
+        /// <param name="values"></param>
+        /// <param name="expected"></param>
+        [TestCase(new double[] { 0, 1, 255 }, new byte[] { 0, 1, 255 })]
+        [TestCase(new double[] { 0, 1, 2 }, new byte[] { 0, 128, 255 })]
+        public void CommonExtensionsScaleToByteRangeFull(double[] values, byte[] expected)
+        {
+            var volume = values.SingleLineVolume();
+            var actual = volume.ScaleToByteRange();
+            Assert.AreEqual(expected, actual.Array);
+        }
+
+        [Test]
+        public void CommonExtensionsMinMaxRange()
+        {
+            var minMaxInvalid = MinMax.Create(10, 5);
+            Assert.Throws<ArgumentException>(() => minMaxInvalid.Range());
+            var minMax = MinMax.Create(5, 100);
+            Assert.AreEqual(minMax.Maximum - minMax.Minimum, minMax.Range());
+            Assert.AreEqual(minMax.Minimum, minMax.Clamp(minMax.Minimum - 1));
+            Assert.AreEqual(50, minMax.Clamp(50));
+            Assert.AreEqual(minMax.Maximum, minMax.Clamp(minMax.Maximum + 1));
+        }
+    }
+}
