@@ -2071,4 +2071,142 @@ namespace InnerEye.CreateDataset.Math
 	     /// <summary>
         /// Converts the volume to byte range. Voxels that have a value at or below the 
 		/// minimum that is given in <paramref name="minMax"/>.Minimum will be mapped
-        /// to 0. Voxels that have a value at or above the maximu
+        /// to 0. Voxels that have a value at or above the maximum given in <paramref name="minMax"/>.Maximum
+		/// will be mapped to <see cref="byte.MaxValue"/>. Voxel values in between are linearly scaled.
+        /// If the given minimum is equal to the maximum, the result is all zeroes.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <param name="minMax">The minimum and maximum voxel values that are used for computing the linear mapping.</param>
+        /// <returns></returns>
+        public static Volume2D<byte> ScaleToByteRange(this Volume2D<byte> volume, MinMax<byte> minMax)
+        {
+			if (volume == null)
+			{
+				throw new ArgumentNullException(nameof(volume));
+			}
+            var range = minMax.Maximum - minMax.Minimum;
+            if (range <= 0.0f)
+            {
+                return volume.CreateSameSize<byte>();
+            }
+
+            var scale = (double)byte.MaxValue / range;
+            return volume.Map(value => Converters.ClampToByte(scale * (value - minMax.Minimum)));
+        }
+		
+		/// <summary>
+        /// Converts the volume to byte range. The minimum voxel value in the input volume will be mapped
+        /// to 0, the maximum voxel value to <see cref="byte.MaxValue"/>.
+        /// If all voxel values in the input image have the same value, the result is all zeroes.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <returns></returns>
+        public static Volume2D<byte> ScaleToByteRange(this Volume2D<byte> volume)
+			=> ScaleToByteRange(volume, volume.GetMinMax());
+	     /// <summary>
+        /// Converts the volume to byte range. Voxels that have a value at or below the 
+		/// minimum that is given in <paramref name="minMax"/>.Minimum will be mapped
+        /// to 0. Voxels that have a value at or above the maximum given in <paramref name="minMax"/>.Maximum
+		/// will be mapped to <see cref="byte.MaxValue"/>. Voxel values in between are linearly scaled.
+        /// If the given minimum is equal to the maximum, the result is all zeroes.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <param name="minMax">The minimum and maximum voxel values that are used for computing the linear mapping.</param>
+        /// <returns></returns>
+        public static Volume2D<byte> ScaleToByteRange(this Volume2D<short> volume, MinMax<short> minMax)
+        {
+			if (volume == null)
+			{
+				throw new ArgumentNullException(nameof(volume));
+			}
+            var range = minMax.Maximum - minMax.Minimum;
+            if (range <= 0.0f)
+            {
+                return volume.CreateSameSize<byte>();
+            }
+
+            var scale = (double)byte.MaxValue / range;
+            return volume.Map(value => Converters.ClampToByte(scale * (value - minMax.Minimum)));
+        }
+		
+		/// <summary>
+        /// Converts the volume to byte range. The minimum voxel value in the input volume will be mapped
+        /// to 0, the maximum voxel value to <see cref="byte.MaxValue"/>.
+        /// If all voxel values in the input image have the same value, the result is all zeroes.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <returns></returns>
+        public static Volume2D<byte> ScaleToByteRange(this Volume2D<short> volume)
+			=> ScaleToByteRange(volume, volume.GetMinMax());
+	     /// <summary>
+        /// Converts the volume to byte range. Voxels that have a value at or below the 
+		/// minimum that is given in <paramref name="minMax"/>.Minimum will be mapped
+        /// to 0. Voxels that have a value at or above the maximum given in <paramref name="minMax"/>.Maximum
+		/// will be mapped to <see cref="byte.MaxValue"/>. Voxel values in between are linearly scaled.
+        /// If the given minimum is equal to the maximum, the result is all zeroes.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <param name="minMax">The minimum and maximum voxel values that are used for computing the linear mapping.</param>
+        /// <returns></returns>
+        public static Volume2D<byte> ScaleToByteRange(this Volume2D<float> volume, MinMax<float> minMax)
+        {
+			if (volume == null)
+			{
+				throw new ArgumentNullException(nameof(volume));
+			}
+            var range = minMax.Maximum - minMax.Minimum;
+            if (range <= 0.0f)
+            {
+                return volume.CreateSameSize<byte>();
+            }
+
+            var scale = (double)byte.MaxValue / range;
+            return volume.Map(value => Converters.ClampToByte(scale * (value - minMax.Minimum)));
+        }
+		
+		/// <summary>
+        /// Converts the volume to byte range. The minimum voxel value in the input volume will be mapped
+        /// to 0, the maximum voxel value to <see cref="byte.MaxValue"/>.
+        /// If all voxel values in the input image have the same value, the result is all zeroes.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <returns></returns>
+        public static Volume2D<byte> ScaleToByteRange(this Volume2D<float> volume)
+			=> ScaleToByteRange(volume, volume.GetMinMax());
+	     /// <summary>
+        /// Converts the volume to byte range. Voxels that have a value at or below the 
+		/// minimum that is given in <paramref name="minMax"/>.Minimum will be mapped
+        /// to 0. Voxels that have a value at or above the maximum given in <paramref name="minMax"/>.Maximum
+		/// will be mapped to <see cref="byte.MaxValue"/>. Voxel values in between are linearly scaled.
+        /// If the given minimum is equal to the maximum, the result is all zeroes.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <param name="minMax">The minimum and maximum voxel values that are used for computing the linear mapping.</param>
+        /// <returns></returns>
+        public static Volume2D<byte> ScaleToByteRange(this Volume2D<double> volume, MinMax<double> minMax)
+        {
+			if (volume == null)
+			{
+				throw new ArgumentNullException(nameof(volume));
+			}
+            var range = minMax.Maximum - minMax.Minimum;
+            if (range <= 0.0f)
+            {
+                return volume.CreateSameSize<byte>();
+            }
+
+            var scale = (double)byte.MaxValue / range;
+            return volume.Map(value => Converters.ClampToByte(scale * (value - minMax.Minimum)));
+        }
+		
+		/// <summary>
+        /// Converts the volume to byte range. The minimum voxel value in the input volume will be mapped
+        /// to 0, the maximum voxel value to <see cref="byte.MaxValue"/>.
+        /// If all voxel values in the input image have the same value, the result is all zeroes.
+        /// </summary>
+        /// <param name="volume"></param>
+        /// <returns></returns>
+        public static Volume2D<byte> ScaleToByteRange(this Volume2D<double> volume)
+			=> ScaleToByteRange(volume, volume.GetMinMax());
+	}
+}
