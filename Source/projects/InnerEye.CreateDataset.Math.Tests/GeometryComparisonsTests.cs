@@ -149,3 +149,64 @@
                 GeometryComparisons.AreSpacingsApproximatelyEqual(volume1, volume2),
                 "Volume spacings reported nearly identical when comparing volumes with significantly different spacings.");
         }
+
+        [Test]
+        public void VolumeOriginApproximateEquality()
+        {
+            var origin1 = new Point3D(-126.98542022705078, -124.45243835449219, -64.447196960449219);
+            // origin1a is identical to origin1
+            var origin1a = new Point3D(origin1.Data);
+            // origin1b is only numerically different from origin1
+            var origin1b = new Point3D(-126.985420227050, -124.452438354493, -64.447196);
+            // origin2 is significantly different from origin1
+            var origin2 = new Point3D(-126.98542022705078, -124.45243835449219, -64.547196960449219);
+            var direction = new Matrix3(
+                new double[]
+                {
+                    0.99956005811691284,
+                    -0.00059527973497270628,
+                    -0.02965429337083975,
+                    -0.00059527973497270628,
+                    0.99919456243515015,
+                    -0.040122962957073682,
+                    0.02965429337083975,
+                    0.040122962957073682,
+                    0.998754620552063,
+                }
+                );
+            var volume1 = new Volume3D<int>(
+                125, 125, 88,
+                2.01, 2.01, 2.01,
+                origin1,
+                direction);
+            var volume1a = new Volume3D<int>(
+                125, 125, 88,
+                2.01, 2.01, 2.01,
+                origin1a,
+                direction);
+            var volume1b = new Volume3D<int>(
+                125, 125, 88,
+                2.01, 2.01, 2.01,
+                origin1b,
+                direction);
+            var volume2 = new Volume3D<int>(
+                125, 125, 88,
+                2.01, 2.01, 2.01,
+                origin2,
+                direction);
+            Assert.IsTrue(
+                GeometryComparisons.AreOriginsApproximatelyEqual(volume1, volume1),
+                "Volume origins reported significantly different when comparing a volume to itself.");
+            Assert.IsTrue(
+                GeometryComparisons.AreOriginsApproximatelyEqual(volume1, volume1a),
+                "Volume origins reported significantly different when comparing volumes with identical origins.");
+            Assert.IsTrue(
+                GeometryComparisons.AreOriginsApproximatelyEqual(volume1, volume1b),
+                "Volume origins reported significantly different when comparing volumes with origins identical up to numerics.");
+            Assert.IsFalse(
+                GeometryComparisons.AreOriginsApproximatelyEqual(volume1, volume2),
+                "Volume origins reported nearly identical when comparing volumes with significantly different origins.");
+        }
+
+    }
+}
