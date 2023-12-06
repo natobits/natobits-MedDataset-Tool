@@ -54,4 +54,42 @@
             Assert.AreEqual(234, region.MaximumX);
             Assert.AreEqual(48, region.MaximumY);
 
-            Assert.T
+            Assert.Throws<ArgumentNullException>(() => new List<ContourPolygon>().GetRegion());
+        }
+
+        [Description("Tests that getting min/ max slices returns the correct result.")]
+        [Test]
+        public void GetMinMaxSlicesTest()
+        {
+            var contoursBySlice = new Contours.ContoursPerSlice(new Dictionary<int, IReadOnlyList<ContourPolygon>>()
+            {
+                { 5, new List<ContourPolygon>() },
+                { 7, new List<ContourPolygon>() },
+                { 10, new List<ContourPolygon>() },
+                { 15, new List<ContourPolygon>() },
+                { 6, new List<ContourPolygon>() },
+                { 8, new List<ContourPolygon>() },
+                { 12, new List<ContourPolygon>() },
+                { 90, new List<ContourPolygon>() },
+            });
+
+            var minMax = contoursBySlice.GetMinMaxSlices();
+
+            Assert.AreEqual(5, minMax.Min);
+            Assert.AreEqual(90, minMax.Max);
+        }
+
+        [Description("Tests that getting min/ max intensities of a volume3d returns correct values")]
+        [Test]
+        public void GetMinMaxOfVolume3D()
+        {
+            var array = Enumerable.Range(0, 100).Select(x => (short)x).ToArray();
+            var volume = new Volume3D<short>(array, array.Length, 1, 1, 1, 1, 1);
+
+            var minMax = volume.GetMinMax();
+
+            Assert.AreEqual(0, minMax.Minimum);
+            Assert.AreEqual(99, minMax.Maximum);
+        }
+    }
+}
