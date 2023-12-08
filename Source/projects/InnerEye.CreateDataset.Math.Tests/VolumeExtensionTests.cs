@@ -318,4 +318,76 @@
                 return new Volume3D<T>(values, values.Length, 1, 1, 1, 1, 1);
             }
 
-            
+            // The two voxel values that have a corresponding 1 in the maks
+            var withMaskExpected = CreateExpected(true);
+
+            Assert.AreEqual(withMaskExpected, image.VoxelsInsideMaskWithCoordinates(mask).ToArray(), 
+                "Voxels when mask is used");
+
+            // Without the mask, all voxels values should be returned.
+            Assert.AreEqual(CreateExpected(false), image.VoxelsInsideMaskWithCoordinates(null).ToArray(), 
+                "Voxels when mask is empty");
+            Volume3D<byte> nullImage = null;
+            Assert.Throws<ArgumentNullException>(() => VolumeExtensions.VoxelsInsideMaskWithCoordinates(nullImage, mask).ToArray(), 
+                "Null image is not allowed");
+        }
+
+        /// <summary>
+        /// Tests the functionality of <see cref="VolumeExtensions.GetCombinedForegroundRegion"/>
+        /// </summary>
+        [Test]
+        public void GetCombinedForegroundRegion()
+        {
+            var volumeA = new Volume3D<byte>(3, 3, 3);
+
+            Assert.Throws<ArgumentNullException>(() => VolumeExtensions.GetCombinedForegroundRegion(volumeA, null), "Null image is not allowed");
+            Assert.Throws<ArgumentNullException>(() => VolumeExtensions.GetCombinedForegroundRegion(null, volumeA), "Null image is not allowed");
+            Assert.Throws<ArgumentNullException>(() => VolumeExtensions.GetCombinedForegroundRegion(null, null), "Null image is not allowed");
+
+            Assert.AreEqual(new Region3D<int>(0, 0, 0, -1, -1, -1), VolumeExtensions.GetCombinedForegroundRegion(volumeA, volumeA),
+               "Negative bounds expected if no foreground region found in both volumes");
+
+            volumeA[0, 0, 0] = 1;
+
+            Assert.AreEqual(new Region3D<int>(0, 0, 0, 0, 0, 0), VolumeExtensions.GetCombinedForegroundRegion(volumeA, volumeA), 
+                "Combined region should be the foreground region of volume if other volume is also same");
+
+            var volumeB = volumeA.CreateSameSize<byte>();
+            volumeB[2, 2, 2] = 1;
+
+            Assert.AreEqual(volumeA.GetFullRegion(), VolumeExtensions.GetCombinedForegroundRegion(volumeA, volumeB),
+               "Region when combining disjoint regions");
+        }
+
+        [TestCase(new int[] {1, 2, 3, 3, 1 }, 2, 3)]
+        [TestCase(new int[] {1}, 0, 1)]
+        public void ArgMax(int[] values, int expectedIndex, int expectedValue)
+        {
+            var (Index, Maximum) = values.ArgMax();
+            Assert.AreEqual(expectedIndex, Index);
+            Assert.AreEqual(expectedValue, Maximum);
+        }
+
+        [Test]
+        public void ArgMaxInvalid()
+        {
+            Assert.Throws<ArgumentNullException>(() => VolumeExtensions.ArgMax<int>(null));
+            Assert.Throws<ArgumentException>(() => VolumeExtensions.ArgMax(new int[0]));
+        }
+
+        [Test]
+        public void SliceWithMostForeground()
+        {
+            var foreground0 = new byte[4];
+            var foreground1 = new byte[] {1, 0, 0, 0 };
+            var foreground4 = new byte[] { 1, 1, 1, 1 };
+            // A volume that has 1 foreground pixel in slice 0, 0 in slice 1, 4 in slice 2, 1 in slice 3
+            var volume = VolumeExtensions.FromSlices(2, 2, new byte[][] { foreground1, foreground0, foreground4, foreground1 });
+            var largestSlice = volume.SliceWithMostForeground(1);
+            Assert.AreEqual((2,4), largestSlice);
+            // When search for a foreground value that is not present at all, the first
+            // slice should be returned.
+            Assert.AreEqual((0,0), volume.SliceWithMostForeground(42));
+        }
+    }
+}
