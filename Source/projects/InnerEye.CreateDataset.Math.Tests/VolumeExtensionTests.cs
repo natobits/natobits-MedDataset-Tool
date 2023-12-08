@@ -125,4 +125,197 @@
             };
 
             // Target values.
-  
+            var target = new byte[]
+            {
+                138, 138, 146, 134, 138, 138, 132, 96, 123, 123, 66, 66, 146,
+                136, 50, 63, 138, 138, 151, 134, 133, 133, 120, 99, 119, 119,
+                90, 91, 123, 123, 86, 91, 118, 101, 113, 98, 111, 90, 87, 73,
+                85, 90, 87, 91, 93, 94, 85, 91, 118, 118, 113, 98, 111, 101,
+                94, 81, 93, 99, 91, 91, 93, 94, 88, 91
+            };
+
+            // Produce median smoothing output with radius 1.
+            var input = new Volume3D<byte>(data, 4, 4, 4, 2, 2, 2);
+            var output = input.MedianSmooth(radius);
+            // expected based on radius ie: identify if 0 radius else target if 1
+            var expected = radius == 0 ? input : new Volume3D<byte>(target, 4, 4, 4, 2, 2, 2);
+            VolumeAssert.AssertVolumesMatch(expected, output);
+        }
+
+        [Test]
+        public void SagitallMirrorDiffOddSize()
+        {
+            var volume = VolumeExtensions.FromSlices<byte>(3, 3,
+                new List<byte[]>
+                {
+                    new byte[] { 1, 2, 3, 4, 5, 4, 3, 2, 1 },
+                    new byte[] { 10, 40, 50, 80, 50, 10, 70, 80, 90 }
+                });
+            var diff = volume.CreateSagittalSymmetricAbsoluteDifference();
+            // Expected values: Take a block of 3 number in one of the input slices.
+            // This is what would be mirrored. Middle element turns 0 (mirrored onto itself),
+            // feature value is the absolute diff between the right and left element.
+            var expected = VolumeExtensions.FromSlices(3, 3,
+                new List<byte[]>
+                {
+                    new byte[] { 2, 0, 2, 0, 0, 0, 2, 0, 2 },
+                    new byte[] { 40, 0, 40, 70, 0, 70, 20, 0, 20 }
+                });
+            VolumeAssert.AssertVolumesMatch(expected, diff);
+        }
+
+        [Test]
+        public void SagitallMirrorDiffEvenSize()
+        {
+            var volume = VolumeExtensions.FromSlices(2, 2,
+                new List<byte[]>
+                {
+                    new byte[] { 1, 2, 3, 8 },
+                    new byte[] { 10, 40, 50, 10 }
+                });
+            var diff = volume.CreateSagittalSymmetricAbsoluteDifference();
+            var expected = VolumeExtensions.FromSlices(2, 2,
+                new List<byte[]>
+                {
+                    new byte[] { 1, 1, 5, 5 },
+                    new byte[] { 30, 30, 40, 40 }
+                });
+            VolumeAssert.AssertVolumesMatch(expected, diff);
+        }
+
+        [Test]
+        public void SagitallMirrorOddSize()
+        {
+            var volume = VolumeExtensions.FromSlices<byte>(3, 3,
+                new List<byte[]>
+                {
+                    new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9 },
+                    new byte[] { 10, 20, 30, 40, 50, 60, 70, 80, 90 }
+                });
+            volume.SagittalMirroringInPlace();
+            // Expected values: Take a block of 3 number in one of the input slices, mirror that.
+            var expected = VolumeExtensions.FromSlices(3, 3,
+                new List<byte[]>
+                {
+                    new byte[] { 3, 2, 1, 6, 5, 4, 9, 8, 7 },
+                    new byte[] { 30, 20, 10, 60, 50, 40, 90, 80, 70}
+                });
+            VolumeAssert.AssertVolumesMatch(expected, volume);
+        }
+
+        [Test]
+        public void SagitallMirrorEvenSize()
+        {
+            var volume = VolumeExtensions.FromSlices(2, 2,
+                new List<byte[]>
+                {
+                    new byte[] { 1, 2, 3, 4 },
+                    new byte[] { 10, 20, 30, 40 }
+                });
+            volume.SagittalMirroringInPlace();
+            var expected = VolumeExtensions.FromSlices(2, 2,
+                new List<byte[]>
+                {
+                    new byte[] { 2, 1, 4, 3 },
+                    new byte[] { 20, 10, 40, 30 }
+                });
+            VolumeAssert.AssertVolumesMatch(expected, volume);
+        }
+
+        [TestCase(256)]
+        [TestCase(10)]
+        [TestCase(1)]
+        public void IntegralImageTest(int dimXandY)
+        {
+            int dimX = dimXandY;
+            int dimY = dimXandY;
+            int dimZ = 100;
+            var volume = new Volume3D<byte>(dimXandY, dimXandY, dimZ);
+            volume.Fill(255);
+            var stopWatch = Stopwatch.StartNew();
+            var integral = volume.IntegralImage();
+            stopWatch.Stop();
+            Console.WriteLine($"Time integral {stopWatch.Elapsed}");
+            var sum = volume.Array.Select(x => (ulong)x).Aggregate((x, acc) => x + acc);
+            Console.Write(sum);
+            Assert.AreEqual(sum, integral[integral.Length - 1]);
+            Assert.AreEqual(volume[0], integral[0]);
+        }
+
+        [TestCase(10, 20, 30, 11, 21, 31)]
+        [TestCase(12, 22, 32, 15, 25, 35)]
+        [TestCase(10, 20, 30, 10, 20, 30)]
+        [TestCase(15, 25, 35, 15, 25, 35)]
+        public void RegionInsideOf(int minX, int minY, int minZ, int maxX, int maxY, int maxZ)
+        {
+            var bigger = new Region3D<int>(10, 20, 30, 15, 25, 35);
+            var test = new Region3D<int>(minX, minY, minZ, maxX, maxY, maxZ);
+            Assert.IsTrue(test.InsideOf(bigger));
+        }
+
+        [TestCase(9, 20, 30, 11, 21, 31)]
+        [TestCase(10, 19, 30, 11, 21, 31)]
+        [TestCase(10, 20, 29, 11, 21, 31)]
+        [TestCase(10, 20, 30, 16, 21, 31)]
+        [TestCase(10, 20, 30, 11, 26, 31)]
+        [TestCase(10, 20, 30, 11, 21, 36)]
+        public void RegionNotInsideOf(int minX, int minY, int minZ, int maxX, int maxY, int maxZ)
+        {
+            var bigger = new Region3D<int>(10, 20, 30, 15, 25, 35);
+            var test = new Region3D<int>(minX, minY, minZ, maxX, maxY, maxZ);
+            Assert.IsFalse(test.InsideOf(bigger));
+        }
+
+        /// <summary>
+        /// Tests the functionality of <see cref="VolumeExtensions.VoxelsInsideMask"/>
+        /// </summary>
+        [Test]
+        public void VoxelsInsideMask()
+        {
+            Volume3D<T> Create<T>(T[] values)
+            {
+                return new Volume3D<T>(values, values.Length, 1, 1, 1, 1, 1);
+            }
+            var image = Create(new short[] { 4, 3, 2, 1 });
+            var mask = Create(new byte[] { 0, 1, 0, 1 });
+            // The two voxel values that have a corresponding 1 in the maks
+            var withMaskExpected = new short[] { 3, 1 };
+            Assert.AreEqual(withMaskExpected, image.VoxelsInsideMask(mask).ToArray(), "Voxels when mask is used");
+            // Without the mask, all voxels values should be returned.
+            var withoutMaskExpected = image.Array;
+            Assert.AreEqual(withoutMaskExpected, image.VoxelsInsideMask(null).ToArray(), "Voxels when mask is empty");
+            Volume3D<byte> nullImage = null;
+            Assert.Throws<ArgumentNullException>(() => VolumeExtensions.VoxelsInsideMask(nullImage, mask).ToArray(), "Null image is not allowed");
+        }
+
+        [Test]
+        public void VoxelCoordinates()
+        {
+            var volume = new Volume3D<byte>(3, 3, 3);
+            volume.ParallelIterateSlices(expected =>
+            {
+                var actual = volume.GetCoordinates(volume.GetIndex(expected.x, expected.y, expected.z));
+                Assert.AreEqual(expected, (actual.X, actual.Y, actual.Z));
+            });
+        }
+
+        /// <summary>
+        /// Tests the functionality of <see cref="VolumeExtensions.VoxelsInsideMaskWithCoordinates"/>
+        /// </summary>
+        [Test]
+        public void VoxelsInsideMaskWithCoordinates()
+        {
+            var image = Create(new short[] { 4, 3, 2, 1 });
+            var mask = Create(new byte[] { 0, 1, 0, 1 });
+
+            IEnumerable<(Index3D, int)> CreateExpected(bool withMask)
+                => image.Array
+                .Select((x, i) => (image.GetCoordinates(i), x * (withMask == true ? mask[i] : 1)))
+                .Where(x => x.Item2 != 0);
+
+            Volume3D<T> Create<T>(T[] values)
+            {
+                return new Volume3D<T>(values, values.Length, 1, 1, 1, 1, 1);
+            }
+
+            
