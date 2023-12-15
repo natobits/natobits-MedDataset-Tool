@@ -115,4 +115,23 @@ namespace InnerEye.CreateDataset.Volumes
         
         public void Clear()
         {
-     
+            X = 0;
+            Y = 0;
+        }
+
+        public double Norm()
+        {
+            return Math.Sqrt(X * X + Y * Y);
+        }
+
+        public double SquareNorm()
+        {
+            return X * X + Y * Y;
+        }
+
+        public static double DotProd(Point2D a, Point2D b)
+        {
+            return a.X*b.X + a.Y*b.Y;
+        }
+    }
+}
