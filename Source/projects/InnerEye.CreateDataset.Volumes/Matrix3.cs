@@ -283,3 +283,87 @@ namespace InnerEye.CreateDataset.Volumes
         /// <summary>
         /// Return true if obj is a matrix and contains exactly the same elements as this
         /// </summary>
+        /// <param name="obj"></param>
+        /// <returns></returns>
+        public override bool Equals(object obj)
+        {
+            if (obj == null || GetType() != obj.GetType())
+            {
+                return false;
+            }
+
+            var matrix = (Matrix3)obj;
+
+            return (this == matrix);
+        }
+
+        /// <summary>
+        /// Uses the default Array GetHasCode over Double.GetHashCode. The implementation of array hashing in MS ReferenceSources 
+        /// sugest it uses only the last 8 elements of the array for the hash. So equivalence is not likely to mean equality
+        /// </summary>
+        /// <returns></returns>
+        public override int GetHashCode()
+        {
+            return Data?.GetHashCode() ?? 0;
+        }
+
+        /// <summary>
+        /// Return true is this is exactly value wise equal to other. 
+        /// </summary>
+        /// <param name="other"></param>
+        /// <returns></returns>
+        protected bool Equals(Matrix3 other)
+        {
+            return Equals(Data, other.Data);
+        }
+
+        /// <summary>
+        /// Returns true if the dot product of pairs of columns are all &lt epsilon 
+        /// </summary>
+        /// <param name="m"></param>
+        /// <returns></returns>
+        public static bool IsOrthogonalBasis(Matrix3 m, double epsilon)
+        {
+            var x = m.Column(0);
+            var y = m.Column(1);
+            var z = m.Column(2);
+
+            return
+                Math.Abs(Point3D.DotProd(x, y)) < epsilon &&
+                Math.Abs(Point3D.DotProd(y, z)) < epsilon &&
+                Math.Abs(Point3D.DotProd(z, x)) < epsilon;
+        }
+
+        /// <summary>
+        /// Returns true if IsOrthogonalBasis(m, epsilon) and the squared length of all 
+        /// columns is within an epsilon of 1.
+        /// </summary>
+        /// <param name="m"></param>
+        /// <param name="epsilon"></param>
+        /// <returns></returns>
+        /// <remarks>Its not really fair to use the same epsilons!</remarks>
+        public static bool IsOrthonormalBasis(Matrix3 m, double epsilon)
+        {
+            var x = m.Column(0);
+            var y = m.Column(1);
+            var z = m.Column(2);
+
+            return
+                IsOrthogonalBasis(m, epsilon) &&
+                Math.Abs(Point3D.DotProd(x, x) - 1) < epsilon &&
+                Math.Abs(Point3D.DotProd(y, y) - 1) < epsilon &&
+                Math.Abs(Point3D.DotProd(z, z) - 1) < epsilon;
+        }
+
+        /// <summary>
+        /// Round each element of the matrix to the nearest integer. You should really 
+        /// ask yourself why, if you ever need to do this. 
+        /// </summary>
+        /// <param name="m"></param>
+        /// <returns></returns>
+        public static Matrix3 ElementWiseRound(Matrix3 m)
+        {
+            return new Matrix3(m.Data.Select(v => Math.Round(v)).ToArray());
+        }
+    }
+}
