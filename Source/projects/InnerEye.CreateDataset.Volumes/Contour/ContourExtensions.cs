@@ -362,4 +362,166 @@ namespace InnerEye.CreateDataset.Volumes
         {
             if (contours == null || contours.Count == 0)
             {
-                throw 
+                throw new ArgumentException(nameof(contours));
+            }
+
+            var minimumX = double.MaxValue;
+            var minimumY = double.MaxValue;
+
+            var maximumX = double.MinValue;
+            var maximumY = double.MinValue;
+
+            var foundPoint = false;
+
+            for (var i = 0; i < contours.Count; i++)
+            {
+                var contour = contours[i];
+
+                foreach (var point in contour.ContourPoints)
+                {
+                    foundPoint = true;
+
+                    if (point.X < minimumX)
+                    {
+                        minimumX = point.X;
+                    }
+
+                    if (point.Y < minimumY)
+                    {
+                        minimumY = point.Y;
+                    }
+
+                    if (point.X > maximumX)
+                    {
+                        maximumX = point.X;
+                    }
+
+                    if (point.Y > maximumY)
+                    {
+                        maximumY = point.Y;
+                    }
+                }
+            }
+
+            if (!foundPoint)
+            {
+                throw new ArgumentException(nameof(contours));
+            }
+
+            return new Region2D<double>(minimumX, minimumY, maximumX, maximumY);
+        }
+
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static Region3D<int> GetRegion(this ContoursBySlice axialContours)
+        {
+            var minX = double.MaxValue;
+            var maxX = double.MinValue;
+            var minY = double.MaxValue;
+            var maxY = double.MinValue;
+            var minZ = int.MaxValue;
+            var maxZ = int.MinValue;
+
+            foreach (var contours in axialContours)
+            {
+                if (contours.Value.Count == 0)
+                {
+                    continue;
+                }
+
+                if (contours.Key < minZ)
+                {
+                    minZ = contours.Key;
+                }
+
+                if (contours.Key > maxZ)
+                {
+                    maxZ = contours.Key;
+                }
+
+                foreach (var contour in contours.Value)
+                {
+                    foreach (var point in contour.ContourPoints)
+                    {
+                        if (point.X < minX)
+                        {
+                            minX = point.X;
+                        }
+
+                        if (point.X > maxX)
+                        {
+                            maxX = point.X;
+                        }
+
+                        if (point.Y < minY)
+                        {
+                            minY = point.Y;
+                        }
+
+                        if (point.Y > maxY)
+                        {
+                            maxY = point.Y;
+                        }
+                    }
+                }
+            }
+
+            minX = minX == double.MaxValue ? 0 : minX;
+            minY = minY == double.MaxValue ? 0 : minY;
+            minZ = minZ == int.MaxValue ? 0 : minZ;
+
+            maxX = maxX == double.MinValue ? 0 : maxX;
+            maxY = maxY == double.MinValue ? 0 : maxY;
+            maxZ = maxZ == int.MinValue ? 0 : maxZ;
+
+            return new Region3D<int>((int)Math.Floor(minX), (int)Math.Floor(minY), minZ, (int)Math.Ceiling(maxX), (int)Math.Ceiling(maxY), maxZ);
+        }
+
+        private static Volume3D<byte> ToVolume3D(this ContoursBySlice contours, double spacingX, double spacingY, double spacingZ, Point3D origin, Matrix3 direction, Region3D<int> roi)
+        {
+            ContoursBySlice subContours = new ContoursBySlice(
+                contours.Where(x => x.Value != null).Select(
+                    contour =>
+                        new KeyValuePair<int, IList<Contour>>(
+                            contour.Key - roi.MinimumZ,
+                            contour.Value.Select(x =>
+                                new Contour(
+                                    x.ContourPoints.Select(
+                                        point => new Point(point.X - roi.MinimumX, point.Y - roi.MinimumY)).ToArray(), 0))
+                                .ToList())).ToDictionary(x => x.Key, y => y.Value));
+
+            var result = new Volume3D<byte>(roi.MaximumX - roi.MinimumX + 1, roi.MaximumY - roi.MinimumY + 1, roi.MaximumZ - roi.MinimumZ + 1, spacingX, spacingY, spacingZ, origin, direction);
+
+            result.FillContours(subContours, ModelConstants.MaskForegroundIntensity);
+
+            return result;
+        }
+
+        /// <summary>
+        /// Fills the contour using high accuracy (point in polygon testing).
+        /// </summary>
+        /// <typeparam name="T">The volume type.</typeparam>
+        /// <param name="volume">The volume.</param>
+        /// <param name="contourPoints">The points that defines the contour we are filling.</param>
+        /// <param name="region">The value we will mark in the volume when a point is within the contour.</param>
+        /// <returns>The number of points filled.</returns>
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static int FillContour<T>(this Volume2D<T> volume, Point[] contourPoints, T value)
+        {
+            return FillPolygonHelpers.FillPolygon(contourPoints, volume.Array, volume.DimX, volume.DimY, 0, 0, value);
+        }
+
+        /// <summary>
+        /// Fills the contour using high accuracy (point in polygon testing).
+        /// </summary>
+        /// <typeparam name="T">The volume type.</typeparam>
+        /// <param name="volume">The volume.</param>
+        /// <param name="contourPoints">The points that defines the contour we are filling.</param>
+        /// <param name="region">The value we will mark in the volume when a point is within the contour.</param>
+        /// <returns>The number of points filled.</returns>
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static int FillContour<T>(this Volume2D<T> volume, System.Drawing.Point[] contourPoints, T value)
+        {
+            return FillPolygonHelpers.FillPolygon(contourPoints, volume.Array, volume.DimX, volume.DimY, 0, 0, value);
+        }
+    }
+}
