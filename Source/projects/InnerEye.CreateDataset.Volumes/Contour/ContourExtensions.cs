@@ -200,4 +200,166 @@ namespace InnerEye.CreateDataset.Volumes
                     smoothingType = SmoothingType.None;
                     break;
                 default:
-                  
+                    throw new ArgumentOutOfRangeException(nameof(sliceType), sliceType, null);
+            }
+
+            var numberOfSlices = endPoint - startPoint + 1;
+            var arrayOfContours = new Tuple<int, IList<Contour>>[numberOfSlices];
+
+            for (var i = 0; i < arrayOfContours.Length; i++)
+            {
+                var z = startPoint + i;
+                var volume2D = volume.ExtractSlice(sliceType, z);
+                var contours = volume2D.ExtractContours(fgId, bgId, smoothingType);
+                arrayOfContours[i] = Tuple.Create(z, contours);
+            }
+
+            return new ContoursBySlice(
+                arrayOfContours
+                    .Where(x => !filterEmptyContours || x.Item2.Count > 0)
+                    .ToDictionary(x => x.Item1, x => x.Item2));
+        }
+
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static IList<Contour> ExtractContours(this Volume2D<byte> volume, byte id = 1, byte bgId = 0, SmoothingType smoothingType = SmoothingType.Small)
+        {
+            return ExtractPolygonHelpers.ExtractPolygon(volume, id: id, bgId: bgId, smoothingType: smoothingType);
+        }
+
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static void FillContours<T>(this Volume3D<T> volume, ContoursBySlice contours, T value)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            foreach (var contourPerSlice in contours)
+            {
+                foreach (var contour in contourPerSlice.Value)
+                {
+                    FillPolygonHelpers.FillPolygon(contour.ContourPoints, volume.Array, volume.DimX, volume.DimY, volume.DimZ, contourPerSlice.Key, value);
+                }
+            };
+
+            stopwatch.Stop();
+            Trace.TraceInformation($"Filling polygons in {stopwatch.Elapsed.TotalMilliseconds} ms");
+        }
+
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static void FillContours<T>(this Volume2D<T> volume, IList<Contour> contours, T value)
+        {
+            Parallel.ForEach(contours,
+                contour =>
+                {
+                    volume.FillContour(contour.ContourPoints, value);
+                });
+        }
+
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static void FloodFillHoles(this Volume3D<byte> volume, 
+            byte foregroundId = ModelConstants.MaskForegroundIntensity, byte backgroundId = ModelConstants.MaskBackgroundIntensity)
+        {
+            Parallel.For(0, volume.DimZ, sliceZ =>
+            {
+                FillPolygonHelpers.FloodFillHoles(volume.Array, volume.DimX, volume.DimY, volume.DimZ, sliceZ, foregroundId, backgroundId);
+            });
+        }
+
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static void FloodFillHoles(this Volume2D<byte> volume,
+            byte foregroundId = ModelConstants.MaskForegroundIntensity, byte backgroundId = ModelConstants.MaskBackgroundIntensity)
+        {
+            FillPolygonHelpers.FloodFillHoles(volume.Array, volume.DimX, volume.DimY, 0, 0, foregroundId, backgroundId);
+        }
+
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static Volume3D<byte> ToVolume3D<T>(this ContoursBySlice contours, Volume3D<T> refVolume3D)
+        {
+            return contours.ToVolume3D(
+                refVolume3D.SpacingX,
+                refVolume3D.SpacingY,
+                refVolume3D.SpacingZ,
+                refVolume3D.Origin,
+                refVolume3D.Direction,
+                new Region3D<int>(0, 0, 0, refVolume3D.DimX - 1, refVolume3D.DimY - 1, refVolume3D.DimZ - 1));
+        }
+
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static Volume3D<byte> ToVolume3D<T>(this ContoursBySlice contours, Volume3D<T> refVolume3D, Region3D<int> roi)
+        {
+            return contours.ToVolume3D(
+                refVolume3D.SpacingX,
+                refVolume3D.SpacingY,
+                refVolume3D.SpacingZ,
+                refVolume3D.Origin,
+                refVolume3D.Direction,
+                roi);
+        }
+
+        /// <summary>
+        /// Gets the minimum and maximum slices from the contour collection.
+        /// </summary>
+        /// <param name="contours">The  contours by slice collection.</param>
+        /// <returns>The minimum and maximum slices.</returns>
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static (int Min, int Max) GetMinMaxSlices(this ContoursBySlice contours)
+        {
+            if (contours == null || !contours.Any())
+            {
+                throw new ArgumentException(nameof(contours));
+            }
+
+            var min = int.MaxValue;
+            var max = int.MinValue;
+
+            foreach (var contour in contours)
+            {
+                if (contour.Key < min)
+                {
+                    min = contour.Key;
+                }
+
+                if (contour.Key > max)
+                {
+                    max = contour.Key;
+                }
+            }
+
+            return (min, max);
+        }
+
+        /// <summary>
+        /// Creates the minimum 2D volume from the list of contours and the region of interest.
+        /// </summary>
+        /// <param name="contours">The contours by slice.</param>
+        /// <param name="spacingX">The X-dimension pixel spacing.</param>
+        /// <param name="spacingY">The Y-dimension pixel spacing.</param>
+        /// <param name="origin">The patient position origin.</param>
+        /// <param name="direction">The directional matrix.</param>
+        /// <param name="region">The region of interest.</param>
+        /// <returns>The minimum 2D volume.</returns>
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static Volume2D<byte> CreateVolume2D(this IList<Contour> contours, double spacingX, double spacingY, Point2D origin, Matrix2 direction, Region2D<int> region)
+        {
+            // Convert every point to within the region
+            var subContours = contours.Select(x =>
+                                new Contour(
+                                    x.ContourPoints.Select(
+                                        point => new Point(point.X - region.MinimumX, point.Y - region.MinimumY)).ToArray(), 0)).ToList();
+
+            // Create 2D volume
+            var result = new Volume2D<byte>(region.MaximumX - region.MinimumX + 1, region.MaximumY - region.MinimumY + 1, spacingX, spacingY, origin, direction);
+            result.FillContours(subContours, ModelConstants.MaskForegroundIntensity);
+
+            return result;
+        }
+
+        /// <summary>
+        /// Gets the region of interest from the collection of contours (one slice).
+        /// </summary>
+        /// <param name="contours">The collection of contours.</param>
+        /// <exception cref="ArgumentException">Returns an argument exception if the contours are null or do not contain any values.</exception>
+        /// <returns>The region of interest.</returns>
+        [Obsolete("All contour-related code should move to using the new classes in the InnerEye.CreateDataset.Contours namespace.")]
+        public static Region2D<double> GetRegion(this IList<Contour> contours)
+        {
+            if (contours == null || contours.Count == 0)
+            {
+                throw 
