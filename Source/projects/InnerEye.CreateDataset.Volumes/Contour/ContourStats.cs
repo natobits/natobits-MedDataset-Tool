@@ -30,4 +30,34 @@ namespace InnerEye.CreateDataset.Volumes
     {
         public static ContourStats CalculateContourStats(ReadOnlyVolume3D<short> originalVolume, Volume3D<byte> contourVolume, byte foreground = 1)
         {
-    
+            double numberOfContourPoints = 0;
+            long sum = 0;
+            ulong sumSqMinusMean = 0;
+
+            for (int i = 0; i < originalVolume.Length; i++)
+            {
+                if (contourVolume[i] == foreground)
+                {
+                    numberOfContourPoints++;
+                    sum += originalVolume[i];
+                }
+            }
+
+            var mean = numberOfContourPoints == 0 ? 0d : sum / numberOfContourPoints;
+
+            for (int i = 0; i < originalVolume.Length; i++)
+            {
+                if (contourVolume[i] == foreground)
+                {
+                    var d = originalVolume[i] - mean;
+                    sumSqMinusMean += (ulong)(d * d);
+                }
+            }
+
+            var volumeSizeInmm = numberOfContourPoints * originalVolume.VoxelVolume / 1000d;
+            var standardDeviation = mean == 0 ? 0 : Math.Sqrt(sumSqMinusMean / numberOfContourPoints);
+
+            return new ContourStats(volumeSizeInmm, mean, standardDeviation);
+        }
+    }
+}
