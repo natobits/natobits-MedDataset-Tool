@@ -72,4 +72,31 @@ namespace InnerEye.CreateDataset.Volumes
         {
             var hashCode = -436642110;
             var prime = -1521134295;
-            var comparator = E
+            var comparator = EqualityComparer<T>.Default;
+            hashCode = hashCode * prime + comparator.GetHashCode(MinimumX);
+            hashCode = hashCode * prime + comparator.GetHashCode(MinimumY);
+            hashCode = hashCode * prime + comparator.GetHashCode(MinimumZ);
+            hashCode = hashCode * prime + comparator.GetHashCode(MaximumX);
+            hashCode = hashCode * prime + comparator.GetHashCode(MaximumY);
+            hashCode = hashCode * prime + comparator.GetHashCode(MaximumZ);
+            return hashCode;
+        }
+
+        /// <summary>
+        /// Creates a copy of the present object, and overwrites the minimum and maximum Z 
+        /// values with the arguments.
+        /// </summary>
+        /// <param name="minimumZ"></param>
+        /// <param name="maximumZ"></param>
+        /// <returns></returns>
+        public Region3D<T> OverrideZ(T minimumZ, T maximumZ)
+        {
+            return new Region3D<T>(MinimumX, MinimumY, minimumZ, MaximumX, MaximumY, maximumZ);
+        }
+
+        public override string ToString()
+        {
+            return $"({MinimumX}, {MaximumX}) ({MinimumY}, {MaximumY}) ({MinimumZ}, {MaximumZ})";
+        }
+    }
+}
