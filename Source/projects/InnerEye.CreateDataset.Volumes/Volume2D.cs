@@ -164,4 +164,60 @@ namespace InnerEye.CreateDataset.Volumes
                 hashCode = (hashCode * 397) ^ Origin.GetHashCode();
                 hashCode = (hashCode * 397) ^ (Direction?.GetHashCode() ?? 0);
                 hashCode = (hashCode * 397) ^ (PixelToPhysicalMatrix?.GetHashCode() ?? 0);
-                hashCode = (ha
+                hashCode = (hashCode * 397) ^ (PhysicalToPixelMatrix?.GetHashCode() ?? 0);
+                return hashCode;
+            }
+        }
+
+        public bool TryGetIndex(int x, int y, out int index)
+        {
+            index = GetIndex(x, y);
+            return IsValid(x, y);
+        }
+
+        public bool IsValid(int x, int y)
+        {
+            if (x < 0 || y < 0)
+            {
+                return false;
+            }
+
+            return x < DimX && y < DimY;
+        }
+
+        public Point2D PhysicalToPixel(Point2D physical)
+        {
+            return PhysicalToPixelMatrix * (physical - Origin);
+        }
+
+        public Point2D PixelToPhysical(Point2D pixelPoint)
+        {
+            return PixelToPhysicalMatrix * pixelPoint + Origin;
+        }
+
+        protected bool Equals(Volume2D<T> other)
+        {
+            return DimX == other.DimX && DimY == other.DimY && DimXY == other.DimXY && SpacingX.Equals(other.SpacingX) && SpacingY.Equals(other.SpacingY) && Origin.Equals(other.Origin) && Equals(Direction, other.Direction) && Equals(PixelToPhysicalMatrix, other.PixelToPhysicalMatrix) && Equals(PhysicalToPixelMatrix, other.PhysicalToPixelMatrix);
+        }
+
+        private void ComputePixelToPhysicalMatrices(Matrix2 direction, out Matrix2 pixelToPhysicalMatrix, out Matrix2 physicalToPixelMatrix)
+        {
+            pixelToPhysicalMatrix = new Matrix2(direction);
+
+            var spacings = new[] { SpacingX, SpacingY };
+
+            for (var i = 0; i < 4; i++)
+            {
+                pixelToPhysicalMatrix.Data[i] *= spacings[i / 2];
+            }
+
+            physicalToPixelMatrix = pixelToPhysicalMatrix.Inverse();
+        }
+
+        /// <summary>
+        /// Creates a <see cref="Volume2D{U}"/> instance that has the same size as the present
+        /// object, but with a newly created (not initialized) data array.
+        /// </summary>
+        public Volume2D<U> CreateSameSize<U>() => new Volume2D<U>(DimX, DimY, SpacingX, SpacingY, Origin, Direction);
+    }
+}
