@@ -330,4 +330,183 @@
         /// <param name="path">The file to load.</param>
         /// <returns></returns>
         public static Volume3D<short> LoadNiftiAsShort(string path)
-  
+        {
+            return LoadNiftiFromFile(path, NiftiIO.ReadNiftiAsShort);
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, where the Nifti file is expected to have
+        /// voxels in 'short' format.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static Volume3D<short> LoadNiftiInShortFormat(string path)
+        {
+            return LoadNiftiFromFile(path, NiftiIO.ReadNiftiInShortFormat);
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, where the Nifti file is expected to have
+        /// voxels in 'ushort' (unsigned 16 bit integer) format.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static Volume3D<ushort> LoadNiftiInUShortFormat(string path)
+        {
+            return LoadNiftiFromFile(path, NiftiIO.ReadNiftiInUShortFormat);
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, returning it as a <see cref="Volume3D{T}"/> with datatype
+        /// <see cref="short"/>, irrespective of the datatype used in the Nifti file itself.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static async Task<Volume3D<short>> LoadNiftiAsShortAsync(string path)
+        {
+            return await Task.Run(() => LoadNiftiAsShort(path));
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, returning it as a <see cref="Volume3D{T}"/> with datatype
+        /// <see cref="float"/>, irrespective of the datatype used in the Nifti file itself.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static Volume3D<float> LoadNiftiAsFloat(string path)
+        {
+            return LoadNiftiFromFile(path, NiftiIO.ReadNiftiAsFloat);
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, where the Nifti file is expected to have
+        /// voxels in 'float' format.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static Volume3D<float> LoadNiftiInFloatFormat(string path)
+        {
+            return LoadNiftiFromFile(path, NiftiIO.ReadNiftiInFloatFormat);
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, returning it as a <see cref="Volume3D{T}"/> with datatype
+        /// <see cref="float"/>, irrespective of the datatype used in the Nifti file itself.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static async Task<Volume3D<float>> LoadNiftiAsFloatAsync(string path)
+        {
+            return await Task.Run(() => LoadNiftiAsFloat(path));
+        }
+
+        /// <summary>
+        /// Save a 3D volume to a file on the local disk, in compressed or uncompressed Nifti format.
+        /// </summary>
+        /// <param name="image"></param>
+        /// <param name="filename">The name of the file to write. The compression level will be
+        /// chosen based on the file extension (compressed if the extension is .nii.gz)</param>
+        public static void SaveNifti(Volume3D<short> image, string filename)
+        {
+            SaveNiftiToFile(filename, image, NiftiIO.WriteToStream);
+        }
+
+        /// <summary>
+        /// Save a 3D volume to a file on the local disk, in compressed or uncompressed Nifti format.
+        /// </summary>
+        /// <param name="image"></param>
+        /// <param name="filename">The name of the file to write. The compression level will be
+        /// chosen based on the file extension (compressed if the extension is .nii.gz)</param>
+        public static async Task SaveNiftiAsync(Volume3D<short> image, string filename)
+        {
+            await Task.Run(() => SaveNifti(image, filename));
+        }
+
+        /// <summary>
+        /// Save a 3D volume to a file on the local disk, in compressed or uncompressed Nifti format.
+        /// </summary>
+        /// <param name="image"></param>
+        /// <param name="filename">The name of the file to write. The compression level will be
+        /// chosen based on the file extension (compressed if the extension is .nii.gz)</param>
+        public static void SaveNifti(Volume3D<float> image, string filename)
+        {
+            SaveNiftiToFile(filename, image, NiftiIO.WriteToStream);
+        }
+
+        /// <summary>
+        /// Save a 3D volume to a file on the local disk, in compressed or uncompressed Nifti format.
+        /// </summary>
+        /// <param name="image"></param>
+        /// <param name="filename">The name of the file to write. The compression level will be
+        /// chosen based on the file extension (compressed if the extension is .nii.gz)</param>
+        public static void SaveNifti(Volume3D<byte> image, string filename)
+        {
+            SaveNiftiToFile(filename, image, NiftiIO.WriteToStream);
+        }
+
+        /// <summary>
+        /// Save a 3D volume to a file on the local disk, in compressed or uncompressed Nifti format.
+        /// </summary>
+        /// <param name="image"></param>
+        /// <param name="filename">The name of the file to write. The compression level will be
+        /// chosen based on the file extension (compressed if the extension is .nii.gz)</param>
+        public static async Task SaveNiftiAsync(Volume3D<byte> image, string filename)
+        {
+            await Task.Run(() => SaveNifti(image, filename));
+        }
+
+        /// <summary>
+        /// Save all images and the rt struct to the given folder.
+        /// </summary>
+        /// <param name="folderPath"></param>
+        /// <param name="medicalVolume"></param>
+        /// <returns></returns>
+        public static async Task SaveMedicalVolumeAsync(
+            string folderPath, MedicalVolume medicalVolume)
+        {
+            await Task.WhenAll(
+                SaveDicomImageAsync(folderPath, medicalVolume),
+                SaveRtStructAsync(Path.Combine(folderPath, "rtstruct.dcm"), medicalVolume.Struct));
+        }
+
+        /// <summary>
+        /// Returns a task that saves a copy of the original DICOM files forming a medical volume.
+        /// </summary>
+        /// <param name="folderPath"></param>
+        /// <param name="medicalVolume"></param>
+        /// <returns></returns>
+        private static async Task SaveDicomImageAsync(string folderPath, MedicalVolume medicalVolume)
+        {
+            await Task.Run(() =>
+                Parallel.ForEach(
+                    medicalVolume.FilePaths,
+                    file =>
+                    {
+                        if (!File.Exists(file))
+                        {
+                            throw new FileNotFoundException(
+                                $"The original dicom directory was modified while using this image. File {file} is missing");
+                        }
+
+                        // ReSharper disable once AssignNullToNotNullAttribute
+                        var destFile = Path.Combine(folderPath, Path.GetFileName(file));
+                        File.Copy(file, destFile);
+                    }));
+        }
+
+        /// <summary>
+        /// Returns a task to save the given rtStruct to disk.
+        /// </summary>
+        /// <param name="filename"></param>
+        /// <param name="rtStruct"></param>
+        /// <returns></returns>
+        public static async Task SaveRtStructAsync(string filename, RadiotherapyStruct rtStruct)
+        {
+            await Task.Run(
+                () => RtStructWriter.SaveRtStruct(filename, rtStruct));
+        }
+
+        private static T LoadNiftiFromFile<T>(string path, Func<Stream,NiftiCompression,T> loadFromStream)
+        {
+            var compression = GetNiftiCompressionOrFail(path);
+            
