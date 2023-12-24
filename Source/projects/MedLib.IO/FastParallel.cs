@@ -198,4 +198,47 @@
         /// <exception cref="ArgumentException">The number of threads must be 1 or more - maxThreads</exception>
         public static void BatchLoop(int count, int? maxThreads, Action<int, int> batchAction)
         {
-            batchAction = ba
+            batchAction = batchAction ?? throw new ArgumentNullException(nameof(batchAction));
+
+            if (maxThreads == null)
+            {
+                batchAction(0, count - 1);
+            }
+            else
+            {
+                if (maxThreads.Value < 1)
+                {
+                    throw new ArgumentException("The number of threads must be 1 or more", nameof(maxThreads));
+                }
+                Parallel.For(0, maxThreads.Value, thread =>
+                {
+                    var (firstIndex, lastIndex) = BatchBoundaries(count, thread, maxThreads.Value);
+                    batchAction(firstIndex, lastIndex);
+                });
+            }
+        }
+
+        /// <summary>
+        /// A default batch action that will call elementAction on each index in the range [firstIndex, lastIndex]. Use 
+        /// in conjunction with BatchLoop for parallel processing of elementAction over a range of contiguous values
+        /// </summary>
+        /// <param name="elementAction">Action to apply to the value at the given array index.</param>
+        /// <returns></returns>
+        /// <exception cref="ArgumentNullException">elementAction</exception>
+        public static Action<int, int> DefaultBatchLoop(Action<int> elementAction)
+        {
+            if (elementAction == null)
+            {
+                throw new ArgumentNullException(nameof(elementAction));
+            }
+
+            return (firstIndex, lastIndex) =>
+            {
+                for (var i = firstIndex; i <= lastIndex; i++)
+                {
+                    elementAction(i);
+                }
+            };
+        }
+    }
+}
