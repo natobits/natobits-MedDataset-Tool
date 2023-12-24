@@ -393,3 +393,163 @@
 					float* pDestEnd = pDest + endIndex;
 					float* pDestPtr = pDest + startIndex;
 #pragma warning disable IDE0004 // Remove Unnecessary Cast
+					ushort* pSrcPtr = (ushort*)pSrc + startIndex;
+#pragma warning restore IDE0004 // Remove Unnecessary Cast
+					for (; pDestPtr <= pDestEnd; pDestPtr++, pSrcPtr++)
+					{
+						var v = *pSrcPtr * slope + intercept;
+						float vi = (v);
+						*pDestPtr =vi;
+					}
+				}
+			};
+		}
+
+		/// <summary>
+		/// Returns an action to convert an array of bytes encoding a contiguous array of type float to an array of type float applying slope and intercept
+		/// to the given values. All values are clamped to the range float.MinValue and float.MaxValue as appropriate.
+		/// </summary>
+		public unsafe static Action<int, int> Convertfloat(byte[] srcBytes, float[] output, float slope, float intercept)
+		{
+			return (startIndex, endIndex) =>
+			{
+				fixed (byte* pSrc = srcBytes)
+				fixed (float* pDest = output)
+				{
+					float* pDestEnd = pDest + endIndex;
+					float* pDestPtr = pDest + startIndex;
+#pragma warning disable IDE0004 // Remove Unnecessary Cast
+					float* pSrcPtr = (float*)pSrc + startIndex;
+#pragma warning restore IDE0004 // Remove Unnecessary Cast
+					for (; pDestPtr <= pDestEnd; pDestPtr++, pSrcPtr++)
+					{
+						var v = *pSrcPtr * slope + intercept;
+						float vi = (v);
+						*pDestPtr =vi;
+					}
+				}
+			};
+		}
+
+
+		/// <summary>
+		/// Helper method to pick an appropriate conversion function from the above based on the data type encoded in srcData
+		/// </summary>
+		public static Action<int, int> BatchConvert(NiftiInternal.Nifti1Datatype srcDataType, byte[] srcData, byte[] output, float slope, float intercept)
+        {
+            switch (srcDataType)
+            {
+                case NiftiInternal.Nifti1Datatype.DT_UNSIGNED_CHAR:
+                    {
+                        return Convertbyte(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_SIGNED_SHORT:
+                    {
+                        return Convertshort(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_FLOAT:
+                    {
+                        return Convertfloat(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_UINT16:
+                    {
+                        return Convertushort(srcData, output, slope, intercept);
+                    }
+                default:
+                    {
+                        throw new InvalidDataException($"BatchConvert: format {srcDataType} is not presently supported.");
+                    }
+            }
+        }
+
+		/// <summary>
+		/// Helper method to pick an appropriate conversion function from the above based on the data type encoded in srcData
+		/// </summary>
+		public static Action<int, int> BatchConvert(NiftiInternal.Nifti1Datatype srcDataType, byte[] srcData, short[] output, float slope, float intercept)
+        {
+            switch (srcDataType)
+            {
+                case NiftiInternal.Nifti1Datatype.DT_UNSIGNED_CHAR:
+                    {
+                        return Convertbyte(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_SIGNED_SHORT:
+                    {
+                        return Convertshort(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_FLOAT:
+                    {
+                        return Convertfloat(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_UINT16:
+                    {
+                        return Convertushort(srcData, output, slope, intercept);
+                    }
+                default:
+                    {
+                        throw new InvalidDataException($"BatchConvert: format {srcDataType} is not presently supported.");
+                    }
+            }
+        }
+
+		/// <summary>
+		/// Helper method to pick an appropriate conversion function from the above based on the data type encoded in srcData
+		/// </summary>
+		public static Action<int, int> BatchConvert(NiftiInternal.Nifti1Datatype srcDataType, byte[] srcData, ushort[] output, float slope, float intercept)
+        {
+            switch (srcDataType)
+            {
+                case NiftiInternal.Nifti1Datatype.DT_UNSIGNED_CHAR:
+                    {
+                        return Convertbyte(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_SIGNED_SHORT:
+                    {
+                        return Convertshort(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_FLOAT:
+                    {
+                        return Convertfloat(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_UINT16:
+                    {
+                        return Convertushort(srcData, output, slope, intercept);
+                    }
+                default:
+                    {
+                        throw new InvalidDataException($"BatchConvert: format {srcDataType} is not presently supported.");
+                    }
+            }
+        }
+
+		/// <summary>
+		/// Helper method to pick an appropriate conversion function from the above based on the data type encoded in srcData
+		/// </summary>
+		public static Action<int, int> BatchConvert(NiftiInternal.Nifti1Datatype srcDataType, byte[] srcData, float[] output, float slope, float intercept)
+        {
+            switch (srcDataType)
+            {
+                case NiftiInternal.Nifti1Datatype.DT_UNSIGNED_CHAR:
+                    {
+                        return Convertbyte(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_SIGNED_SHORT:
+                    {
+                        return Convertshort(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_FLOAT:
+                    {
+                        return Convertfloat(srcData, output, slope, intercept);
+                    }
+                case NiftiInternal.Nifti1Datatype.DT_UINT16:
+                    {
+                        return Convertushort(srcData, output, slope, intercept);
+                    }
+                default:
+                    {
+                        throw new InvalidDataException($"BatchConvert: format {srcDataType} is not presently supported.");
+                    }
+            }
+        }
+    }
+}
