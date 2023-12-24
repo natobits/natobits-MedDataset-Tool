@@ -168,4 +168,166 @@
         /// </summary>
         /// <param name="path"></param>
         /// <param name="acceptanceTests"></param>
-        /// <ret
+        /// <returns></returns>
+        public static async Task<MedicalVolume> LoadSingleDicomSeriesAsync(string path, IVolumeGeometricAcceptanceTest acceptanceTests)
+        {
+            var attributes = File.GetAttributes(path);
+
+            if ((attributes & FileAttributes.Directory) != FileAttributes.Directory)
+            {
+                throw new ArgumentException("Folder path was expected.");
+            }
+
+            var results = await LoadAllDicomSeriesInFolderAsync(path, acceptanceTests);
+
+            if (results.Count != 1)
+            {
+                throw new Exception("Folder contained multiple series.");
+            }
+
+            if (results[0].Error != null)
+            {
+                throw new Exception("Error loading DICOM series.", results[0].Error);
+            }
+
+            return results[0].Volume;
+        }
+
+        /// <summary>
+        /// Loads a medical volume from a Nifti file. The <see cref="MedicalVolume.Volume"/> property
+        /// will be set to the volume in the Nifti file, the RT structures will be empty, empty
+        /// Dicom identifiers.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        public static MedicalVolume LoadMedicalVolumeFromNifti(string path)
+        {
+            var volume = LoadNiftiAsShort(path);
+
+            return new MedicalVolume(
+                volume,
+                new DicomIdentifiers[0],
+                new[] { path },
+                RadiotherapyStruct.CreateDefault(new[] { DicomIdentifiers.CreateEmpty() }));
+        }
+
+        /// <summary>
+        /// Loads a medical volume from a Nifti file. The <see cref="MedicalVolume.Volume"/> property
+        /// will be set to the volume in the Nifti file, the RT structures will be empty, empty
+        /// Dicom identifiers.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <returns></returns>
+        public static async Task<MedicalVolume> LoadMedicalVolumeFromNiftiAsync(string path)
+        {
+            return await Task.Run(() => LoadMedicalVolumeFromNifti(path));
+        }
+
+        public static Tuple<RadiotherapyStruct, string> LoadStruct(string rtfile, Transform3 dicomToData, string studyUId, string seriesUId)
+        {
+            try
+            {
+                var file = DicomFile.Open(rtfile);
+                return RtStructReader.LoadContours(file.Dataset, dicomToData, seriesUId, studyUId, true);
+            }
+            catch (Exception ex)
+            {
+                throw new ArgumentException($"RT file {rtfile} cannot be loaded - {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Analyse all DICOM files in the given folder and attempt to construct a volume for the given seriesUID
+        /// </summary>
+        /// <param name="pathFolder">The absolute path to the folder containing the DICOM files</param>
+        /// <param name="seriesUID">The DICOM Series UID you wish to load</param>
+        /// <param name="acceptanceTests">An implementation of IVolumeGeometricAcceptanceTest defining the geometric constraints of your application</param>
+        /// <param name="loadStructuresIfExists">True if rt-structures identified in the folder and referencing seriesUID should be loaded</param>
+        /// <param name="supportLossyCodecs">If you wish to accept lossy encodings of image pixel data</param>
+        /// <returns></returns>
+        public static async Task<VolumeLoaderResult> LoadDicomSeriesInFolderAsync(
+            string pathFolder, string seriesUID, IVolumeGeometricAcceptanceTest acceptanceTests, bool loadStructuresIfExists = true, bool supportLossyCodecs = true)
+        {
+            var dfc = await DicomFileSystemSource.Build(pathFolder);
+            var pSeriesUID = DicomUID.Parse(seriesUID);
+
+            return LoadDicomSeries(dfc, pSeriesUID, acceptanceTests, loadStructuresIfExists, supportLossyCodecs);
+        }
+
+        /// <summary>
+        /// Analyse all DICOM files in the given folder and attempt to construct all volumes for CT and MR series therein.
+        /// </summary>
+        /// <param name="pathFolder">The absolute path to the folder containing the DICOM files</param>
+        /// <param name="acceptanceTests">An implementation of IVolumeGeometricAcceptanceTest defining the geometric constraints of your application</param>
+        /// <param name="loadStructuresIfExists">True if rt-structures identified in the folder and referencing a volume should be loaded</param>
+        /// <param name="supportLossyCodecs">If you wish to accept lossy encodings of image pixel data</param>
+        /// <returns>A list of volume loading results for the specified folder</returns>
+        public static async Task<IList<VolumeLoaderResult>> LoadAllDicomSeriesInFolderAsync(
+            string pathFolder, IVolumeGeometricAcceptanceTest acceptanceTests, bool loadStructuresIfExists = true, bool supportLossyCodecs = true)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            var dfc = await DicomFileSystemSource.Build(pathFolder);
+            stopwatch.Stop();
+            Trace.TraceInformation($"Analysing folder structure took: {stopwatch.ElapsedMilliseconds} ms");
+
+            return LoadAllDicomSeries(dfc, acceptanceTests, loadStructuresIfExists, supportLossyCodecs);
+        }
+
+        /// <summary>
+        /// Attempt to load all volume for all CT and MR image series within the given DicomFolderContents
+        /// </summary>
+        /// <param name="dfc">A pre-built description of DICOM contents within a particular folder</param>
+        /// <param name="acceptanceTests">An implementation of IVolumeGeometricAcceptanceTest defining the geometric constraints of your application</param>
+        /// <param name="loadStructuresIfExists">True if rt-structures identified in the folder and referencing a volume should be loaded</param>
+        /// <param name="supportLossyCodecs">If you wish to accept lossy encodings of image pixel data</param>
+        /// <returns></returns>
+        public static IList<VolumeLoaderResult> LoadAllDicomSeries(
+            DicomFolderContents dfc, IVolumeGeometricAcceptanceTest acceptanceTests, bool loadStructuresIfExists, bool supportLossyCodecs)
+        {
+            var stopwatch = Stopwatch.StartNew();
+
+            var resultList = new List<VolumeLoaderResult>();
+
+            foreach (var s in dfc.Series)
+            {
+                if (s.SeriesUID != null)
+                {
+                    resultList.Add(LoadDicomSeries(dfc, s.SeriesUID, acceptanceTests, loadStructuresIfExists, supportLossyCodecs));
+                }
+            }
+
+            stopwatch.Stop();
+            Trace.TraceInformation($"Reading all DICOM series took: {stopwatch.ElapsedMilliseconds} ms");
+            return resultList;
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, returning it as a <see cref="Volume3D{T}"/> with datatype
+        /// <see cref="byte"/>, irrespective of the datatype used in the Nifti file itself.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static Volume3D<byte> LoadNiftiAsByte(string path)
+        {
+            return LoadNiftiFromFile(path, NiftiIO.ReadNiftiAsByte);
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, where the Nifti file is expected to have
+        /// voxels in 'byte' format.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static Volume3D<byte> LoadNiftiInByteFormat(string path)
+        {
+            return LoadNiftiFromFile(path, NiftiIO.ReadNiftiInByteFormat);
+        }
+
+        /// <summary>
+        /// Loads a Nifti file from disk, returning it as a <see cref="Volume3D{T}"/> with datatype
+        /// <see cref="short"/>, irrespective of the datatype used in the Nifti file itself.
+        /// </summary>
+        /// <param name="path">The file to load.</param>
+        /// <returns></returns>
+        public static Volume3D<short> LoadNiftiAsShort(string path)
+  
