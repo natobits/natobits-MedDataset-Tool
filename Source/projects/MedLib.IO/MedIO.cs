@@ -509,4 +509,102 @@
         private static T LoadNiftiFromFile<T>(string path, Func<Stream,NiftiCompression,T> loadFromStream)
         {
             var compression = GetNiftiCompressionOrFail(path);
-            
+            using (var fileStream = new FileStream(path, FileMode.Open))
+            {
+                return loadFromStream(fileStream, compression);
+            }
+        }
+
+        private static void SaveNiftiToFile<T>(string path, T volume, Action<Stream, T, NiftiCompression> saveToStream)
+        {
+            var compress = GetNiftiCompressionOrFail(path);
+            try
+            {
+                using (var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+                {
+                    saveToStream(fileStream, volume, compress);
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error writing to file {path}: {ex.Message}", ex);
+            }
+        }
+
+        /// <summary>
+        /// Attempt to load a volume from the given SeriesUID for the given DicomFolderContents
+        /// </summary>
+        /// <param name="dfc">A pre-built description of DICOM contents within a particular folder</param>
+        /// <param name="seriesUID">The DICOM seriesUID you wish to construct a volume for</param>
+        /// <param name="acceptanceTests">An implementation of IVolumeGeometricAcceptanceTest defining the geometric constraints of your application</param>
+        /// <param name="loadStructuresIfExists">True if rt-structures identified in the folder and referencing seriesUID should be loaded</param>
+        /// <param name="supportLossyCodecs">If you wish to accept lossy encodings of image pixel data</param>
+        /// <returns></returns>
+        private static VolumeLoaderResult LoadDicomSeries(
+            DicomFolderContents dfc, DicomUID seriesUID, IVolumeGeometricAcceptanceTest acceptanceTests, bool loadStructuresIfExists, bool supportLossyCodecs)
+        {
+            try
+            {
+                var dicomSeriesContent = dfc.Series.FirstOrDefault((s) => s.SeriesUID == seriesUID);
+
+                var warnings = new List<string>();
+                RadiotherapyStruct rtStruct = null;
+
+                if (dicomSeriesContent != null)
+                {
+                    var volumeData = DicomSeriesReader.BuildVolume(dicomSeriesContent.Content.Select(x => x.File.Dataset), acceptanceTests, supportLossyCodecs);
+
+                    if (volumeData != null && loadStructuresIfExists)
+                    {
+                        var rtStructData = dfc.RTStructs.FirstOrDefault(rt => rt.SeriesUID == seriesUID);
+                        if (rtStructData != null)
+                        {
+                            if (rtStructData.Content.Count == 1)
+                            {
+
+                                var rtStructAndWarnings = RtStructReader.LoadContours(
+                                    rtStructData.Content.First().File.Dataset,
+                                    volumeData.Transform.DicomToData,
+                                    seriesUID.UID,
+                                    null,
+                                    false);
+
+                                rtStruct = rtStructAndWarnings.Item1;
+
+                                var warning = rtStructAndWarnings.Item2;
+
+                                if (!string.IsNullOrEmpty(warning))
+                                {
+                                    warnings.Add(warning);
+                                }
+                            }
+                            else if (rtStructData.Content.Count > 1)
+                            {
+                                warnings.Add("There is more than 1 RT STRUCT referencing this series - skipping structure set load");
+                            }
+                        }
+                    }
+                    var dicomIdentifiers = dicomSeriesContent.Content.Select((v) => DicomIdentifiers.ReadDicomIdentifiers(v.File.Dataset)).ToArray();
+
+                    if (rtStruct == null)
+                    {
+                        rtStruct = RadiotherapyStruct.CreateDefault(dicomIdentifiers);
+                    }
+
+                    var result = new MedicalVolume(
+                        volumeData,
+                        dicomIdentifiers,
+                        dicomSeriesContent.Content.Select((d) => d.Path).ToArray(),
+                        rtStruct);
+
+                    return new VolumeLoaderResult(seriesUID.UID, result, null, warnings);
+                }
+                throw new Exception("Could not find that series");
+            }
+            catch (Exception oops)
+            {
+                return new VolumeLoaderResult(seriesUID.UID, null, oops, new List<string>());
+            }
+        }
+    }
+}
