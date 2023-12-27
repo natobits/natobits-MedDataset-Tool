@@ -371,4 +371,138 @@
         /// </summary>
         /// <param name="contours">The contours and their rendering information.</param>
         /// <param name="dicomIdentifiers">The Dicom identifiers for the scan to which the contours belong.</param>
-        /// <param name="
+        /// <param name="volumeTransform">The Dicom-to-data transformation of the scan to which the contours belong.</param>
+        /// <returns></returns>
+        public static DicomFileAndPath ContoursToDicomRtFile(IEnumerable<ContourRenderingInformation> contours,
+            IReadOnlyList<DicomIdentifiers> dicomIdentifiers,
+            VolumeTransform volumeTransform)
+        {
+            var radiotherapyStruct = ContoursToRadiotherapyStruct(contours, dicomIdentifiers, volumeTransform);
+            return new DicomFileAndPath(RtStructWriter.GetRtStructFile(radiotherapyStruct), "RTStruct.dcm");
+        }
+
+        /// <summary>
+        /// Converts a medical scan, and a set of binary masks, into a Dicom representation.
+        /// The returned set of Dicom files will have files for all slices of the scan, and an RtStruct
+        /// file containing the contours that were derived from the masks. The RtStruct file will be the first
+        /// entry in the returned list of Dicom files.
+        /// Use with extreme care - many Dicom elements have to be halluzinated here, and there's no 
+        /// guarantee that the resulting Dicom will be usable beyond what is needed in InnerEye.
+        /// </summary>
+        /// <param name="scan">The medical scan.</param>
+        /// <param name="imageModality">The image modality through which the scan was acquired.</param>
+        /// <param name="contours">A list of contours for individual anatomical structures, alongside
+        /// name and rendering color.</param>
+        /// <param name="seriesDescription">The value to use as the Dicom series description.</param>
+        /// <param name="patientID">The patient ID that should be used in the Dicom files. If null,
+        /// a randomly generated patient ID will be used.</param>
+        /// <param name="studyInstanceID">The study ID that should be used in the Dicom files (DicomTag.StudyInstanceUID). If null,
+        /// a randomly generated study ID will be used.</param>
+        /// <param name="additionalDicomItems">Additional Dicom items that will be added to each of the slice datasets. This can
+        /// be used to pass in additional information like manufacturer.</param>
+        /// <returns></returns>
+        public static List<DicomFileAndPath> ScanAndContoursToDicom(Volume3D<short> scan,
+            ImageModality imageModality,
+            IReadOnlyList<ContourRenderingInformation> contours,
+            string seriesDescription = null,
+            string patientID = null,
+            string studyInstanceID = null,
+            DicomDataset additionalDicomItems = null)
+        {
+            // To create the Dicom identifiers, write the volume to a set of Dicom files first, 
+            // then read back in.
+            // When working with MR scans from the CNN models, it is quite common to see scans that have a large deviation from 
+            // the 1:1 aspect ratio. Relax that constraint a bit (default is 1.001)
+            var scanFiles = ScanToDicomInMemory(scan, imageModality, seriesDescription, patientID, studyInstanceID, additionalDicomItems);
+            var medicalVolume = MedicalVolumeFromDicom(scanFiles, maxPixelSizeRatioMR: 1.01);
+            var dicomIdentifiers = medicalVolume.Identifiers;
+            var volumeTransform = medicalVolume.Volume.Transform;
+            medicalVolume = null;
+            var rtFile = ContoursToDicomRtFile(contours, dicomIdentifiers, volumeTransform);
+            var dicomFiles = new List<DicomFileAndPath> { rtFile };
+            dicomFiles.AddRange(scanFiles);
+            return dicomFiles;
+        }
+
+        /// <summary>
+        /// Converts a medical volume, scan files and a set of binary masks, into a Dicom representation.
+        /// The returned set of Dicom files will have files for all slices of the scan, and an RtStruct
+        /// file containing the contours that were derived from the masks. The RtStruct file will be the first
+        /// entry in the returned list of Dicom files.
+        /// Use with extreme care - many Dicom elements have to be halluzinated here, and there's no 
+        /// guarantee that the resulting Dicom will be usable beyond what is needed in InnerEye.
+        /// </summary>
+        /// <param name="medicalVolume">The medical scan.</param>
+        /// <param name="scanFiles">The image modality through which the scan was acquired.</param>
+        /// <param name="contours">A list of contours for individual anatomical structures, alongside
+        /// <returns></returns>
+        public static List<DicomFileAndPath> ScanAndContoursToDicom(
+            MedicalVolume medicalVolume,
+            IReadOnlyList<DicomFileAndPath> scanFiles,
+            IReadOnlyList<ContourRenderingInformation> contours)
+        {
+            var rtFile = ContoursToDicomRtFile(contours, medicalVolume.Identifiers, medicalVolume.Volume.Transform);
+            var dicomFiles = new List<DicomFileAndPath> { rtFile };
+            dicomFiles.AddRange(scanFiles);
+            return dicomFiles;
+        }
+
+        /// <summary>
+        /// Removes characters from the given text that are invalid in a Dicom Text element,
+        /// and limits the string length to what is allowed in a Dicom Long String (64 max).
+        /// Effectively, this replaces backslash with forward slash.
+        /// </summary>
+        /// <param name="text"></param>
+        /// <returns></returns>
+        public static string SanitizeDicomLongString(string text)
+        {
+            if (text == null)
+            {
+                return null;
+            }
+
+            var newLength = Math.Min(MaxDicomLongStringLength, text.Length);
+            return text.Replace('\\', '/').Substring(0, newLength);
+        }
+
+        /// <summary>
+        /// Returns true if the given string is valid for use as a Dicom Long String. The string must
+        /// be at most 64 characters, and not contain backslashes.
+        /// (see http://dicom.nema.org/dicom/2013/output/chtml/part05/sect_6.2.html)
+        /// </summary>
+        /// <param name="text"></param>
+        /// <returns></returns>
+        public static bool IsValidDicomLongString(string text)
+        {
+            return text == null || (text.Length <= MaxDicomLongStringLength && !text.Contains('\\'));
+        }
+
+        /// <summary>
+        /// Extracts axial contours for the foreground values in the given volume. After extracting the contours,
+        /// a check is conducted if the contours truthfully represent the actual volume. This will throw exceptions
+        /// for example if the incoming volume has "doughnut shape" structures.
+        /// </summary>
+        /// <param name="volume">The mask volume to extract contours from.</param>
+        /// <param name="maxAbsoluteDifference">The maximum allowed difference in foreground voxels when going
+        /// from mask to contours to mask.</param>
+        /// <param name="maxRelativeDifference">The maximum allowed relative in foreground voxels (true - rendered)/true 
+        /// when going from mask to contours to mask.</param>
+        /// <returns></returns>
+        public static ContoursPerSlice ExtractContoursAndCheck(this Volume3D<byte> volume,
+            int? maxAbsoluteDifference = 10,
+            double? maxRelativeDifference = 0.15
+            )
+        {
+            var contours = ExtractContours.ContoursWithHolesPerSlice(
+                volume,
+                foregroundId: ModelConstants.MaskForegroundIntensity,
+                sliceType: SliceType.Axial,
+                filterEmptyContours: true,
+                regionOfInterest: null,
+                axialSmoothingType: ContourSmoothingType.Small);
+            var slice = new byte[volume.DimX * volume.DimY];
+            void ClearSlice()
+            {
+                for (var index = 0; index < slice.Length; index++)
+                {
+                    slice[index] = ModelConstants.MaskBackgroundInt
