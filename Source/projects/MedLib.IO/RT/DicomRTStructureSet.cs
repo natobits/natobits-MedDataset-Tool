@@ -148,4 +148,66 @@ namespace MedLib.IO.RT
 
             if (identifiers.Any(x => x.Series.SeriesInstanceUid != firstIdentifier.Series.SeriesInstanceUid))
             {
-                throw new InvalidOperationException("the list of slices are not for the same
+                throw new InvalidOperationException("the list of slices are not for the same series");
+            }
+
+            if (identifiers.Any(x => x.Study.StudyInstanceUid != firstIdentifier.Study.StudyInstanceUid))
+            {
+                throw new InvalidOperationException("the list of slices are not for the same study");
+            }
+
+            if (identifiers.Any(x => x.FrameOfReference.FrameOfReferenceUid != firstIdentifier.FrameOfReference.FrameOfReferenceUid))
+            {
+                throw new InvalidOperationException("the list of slices are not from the same frame of reference");
+            }
+
+            var frameOfReference = new DicomRTFrameOFReference(firstIdentifier.FrameOfReference.FrameOfReferenceUid, new List<DicomRTReferencedStudy>()
+            {
+                new DicomRTReferencedStudy(DicomRTReferencedStudy.StudyComponentManagementSopClass, firstIdentifier.Study.StudyInstanceUid, new List<DicomRTReferencedSeries>()
+                {
+                    new DicomRTReferencedSeries(firstIdentifier.Series.SeriesInstanceUid, identifiers.Select(x => DicomRTContourImageItem.Reference(x.Image.SopCommon)).ToList())
+                })
+            });
+
+            return frameOfReference;
+        }
+
+        public bool TryGetDateTime(out DateTime dateTime)
+        {
+            var parsed = false;
+            DateTime result;
+
+            if (DateTime.TryParseExact(Date, _dicomDateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out result))
+            {
+                DateTime time;
+
+                if (DateTime.TryParseExact(Time, _dicomTimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out time))
+                {
+                    result = result.AddHours(time.Hour);
+                    result = result.AddMinutes(time.Minute);
+                    result = result.AddSeconds(time.Second);
+                }
+
+                parsed = true;
+            }
+
+            else if (DateTime.TryParseExact(Date, _hdf5DateFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out result))
+            {
+                DateTime time;
+
+                if (DateTime.TryParseExact(Time, _hdf5TimeFormat , CultureInfo.InvariantCulture, DateTimeStyles.None, out time))
+                {
+                    result = result.AddHours(time.Hour);
+                    result = result.AddMinutes(time.Minute);
+                    result = result.AddSeconds(time.Second);
+                }
+
+                parsed = true;
+            }
+
+            dateTime = result;
+
+            return parsed;
+        }
+    }
+}
