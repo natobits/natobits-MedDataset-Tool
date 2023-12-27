@@ -215,4 +215,160 @@
                     dataset.Add(DicomTag.Modality, ImageModality.CT.ToString());
 
                     dataset.Add(new DicomItem[]
-                
+                    {
+                        new DicomDecimalString(DicomTag.RescaleIntercept, 0),
+                        new DicomDecimalString(DicomTag.RescaleSlope, 1),
+                    });
+                }
+                else if (modality == ImageModality.MR)
+                {
+                    dataset.Add(DicomTag.SOPClassUID, DicomUID.MRImageStorage);
+                    dataset.Add(DicomTag.Modality, ImageModality.MR.ToString());
+                }
+
+                if (additionalDicomItems != null)
+                {
+                    additionalDicomItems
+                    .Clone()
+                    .ForEach(item =>
+                    {
+                        if (!dataset.Contains(item.Tag))
+                        {
+                            dataset.Add(item);
+                        }
+                    });
+                }
+
+                results[i] = new DicomFile(dataset);
+            });
+
+            return results;
+        }
+
+        /// <summary>
+        /// Saves a medical scan to a set of Dicom files. Each file is saved into a memory stream.
+        /// The returned Dicom files have the Path property set to {sliceIndex}.dcm.
+        /// Use with extreme care - many Dicom elements have to be halluzinated here, and there's no 
+        /// guarantee that the resulting Dicom will be usable beyond what is needed in InnerEye.
+        /// </summary>
+        /// <param name="scan">The medical scan.</param>
+        /// <param name="imageModality">The image modality through which the scan was acquired.</param>
+        /// <param name="seriesDescription">The series description that should be used in the Dicom files.</param>
+        /// <param name="patientID">The patient ID that should be used in the Dicom files. If null,
+        /// a randomly generated patient ID will be used.</param>
+        /// <param name="studyInstanceID">The study ID that should be used in the Dicom files (DicomTag.StudyInstanceUID). If null,
+        /// a randomly generated study ID will be used.</param>
+        /// <param name="additionalDicomItems">Additional Dicom items that will be added to each of the slice datasets. This can
+        /// be used to pass in additional information like manufacturer.</param>
+        /// <returns></returns>
+        public static List<DicomFileAndPath> ScanToDicomInMemory(Volume3D<short> scan,
+            ImageModality imageModality,
+            string seriesDescription = null,
+            string patientID = null,
+            string studyInstanceID = null,
+            DicomDataset additionalDicomItems = null)
+        {
+            var scanAsDicomFiles = Convert(scan, imageModality, seriesDescription, patientID, studyInstanceID, additionalDicomItems).ToList();
+            var dicomFileAndPath = new List<DicomFileAndPath>();
+            for (var index = 0; index < scanAsDicomFiles.Count; index++)
+            {
+                var stream = new MemoryStream();
+                scanAsDicomFiles[index].Save(stream);
+                stream.Seek(0, SeekOrigin.Begin);
+                var dicomFile = DicomFileAndPath.SafeCreate(stream, $"{index}.dcm");
+                dicomFileAndPath.Add(dicomFile);
+            }
+            return dicomFileAndPath;
+        }
+
+        /// <summary>
+        /// Loads a medical volume from a set of Dicom files, including the RT structures if present.
+        /// The Dicom files are expected to contain a single Dicom Series.
+        /// </summary>
+        /// <param name="dicomFileAndPath">The Dicom files to load from</param>
+        /// <param name="maxPixelSizeRatioMR">The maximum allowed aspect ratio for pixels, if the volume is an MR scan.</param>
+        /// <returns></returns>
+        /// <exception cref="InvalidDataException">If the volume cannot be loaded from the Dicom files</exception>
+        public static MedicalVolume MedicalVolumeFromDicom(IReadOnlyList<DicomFileAndPath> dicomFileAndPath,
+            double maxPixelSizeRatioMR = NonStrictGeometricAcceptanceTest.DefaultMaxPixelSizeRatioMR)
+        {
+            var acceptanceTest = new NonStrictGeometricAcceptanceTest("Non Square pixels", "Unsupported Orientation", maxPixelSizeRatioMR);
+            var volumeLoaderResult = MedIO.LoadAllDicomSeries(
+                                    DicomFolderContents.Build(dicomFileAndPath),
+                                    acceptanceTest,
+                                    loadStructuresIfExists: true,
+                                    supportLossyCodecs: false);
+            if (volumeLoaderResult.Count != 1)
+            {
+                throw new InvalidDataException($"Unable to load the scan from the Dicom files: There should be exactly 1 series, but got {volumeLoaderResult.Count}.");
+            }
+
+            var result = volumeLoaderResult[0];
+            if (result.Volume == null)
+            {
+                throw new InvalidDataException("An exception was thrown trying to load the scan from the Dicom files.", result.Error);
+            }
+
+            return result.Volume;
+        }
+
+        /// <summary>
+        /// Loads a medical volume from a set of Dicom files that live in the given folder.
+        /// The Dicom loading will include the RT structures if present.
+        /// The folder is expected to contain a single Dicom Series.
+        /// </summary>
+        /// <param name="folderWithDicomFiles">The folder that contains the Dicom files.</param>
+        /// <returns></returns>
+        /// <exception cref="InvalidDataException">If the volume cannot be loaded from the Dicom files</exception>
+        public static MedicalVolume MedicalVolumeFromDicomFolder(string folderWithDicomFiles)
+        {
+            var filesOnDisk =
+                Directory.EnumerateFiles(folderWithDicomFiles)
+                .Select(DicomFileAndPath.SafeCreate)
+                .ToList();
+            return MedicalVolumeFromDicom(filesOnDisk);
+        }
+
+        /// <summary>
+        /// Creates a radiotherapy structure from a set of contours, including the given rendering 
+        /// information (name of the contour, color to render in).
+        /// </summary>
+        /// <param name="contours">The contours and their rendering information.</param>
+        /// <param name="dicomIdentifiers">The Dicom identifiers for the scan to which the contours belong.</param>
+        /// <param name="volumeTransform">The Dicom-to-data transformation of the scan to which the contours belong.</param>
+        /// <returns></returns>
+        public static RadiotherapyStruct ContoursToRadiotherapyStruct(IEnumerable<ContourRenderingInformation> contours,
+            IReadOnlyList<DicomIdentifiers> dicomIdentifiers,
+            VolumeTransform volumeTransform)
+        {
+            var radiotherapyStruct = RadiotherapyStruct.CreateDefault(dicomIdentifiers);
+
+            int roiNumber = 0;
+            var nameConverter = new DicomPersonNameConverter("InnerEye", "CreateDataset", string.Empty, string.Empty, string.Empty);
+            foreach (var contour in contours)
+            {
+                // ROIs need to start at 1 by DICOM spec
+                roiNumber++;
+                // Create contours - mapping each contour into the volume. 
+                var radiotherapyContour = RTStructCreator.CreateRadiotherapyContour(
+                    contour.Contour,
+                    dicomIdentifiers,
+                    volumeTransform,
+                    contour.Name,
+                    (contour.Color.R, contour.Color.G, contour.Color.B),
+                    roiNumber.ToString(),
+                    nameConverter,
+                    ROIInterpretedType.None
+                    );
+                radiotherapyStruct.Contours.Add(radiotherapyContour);
+            }
+            return radiotherapyStruct;
+        }
+
+        /// <summary>
+        /// Creates a single Dicom file that contains a radiotherapy structure,
+        /// derived from a set of contours and rendering information.
+        /// </summary>
+        /// <param name="contours">The contours and their rendering information.</param>
+        /// <param name="dicomIdentifiers">The Dicom identifiers for the scan to which the contours belong.</param>
+        /// <param name="
