@@ -29,4 +29,16 @@
         public byte B { get; set; }
 
         /// <summary>
-   
+        /// Creates a new instance of the class from the (R, G, B) values.
+        /// </summary>
+        /// <param name="red"></param>
+        /// <param name="green"></param>
+        /// <param name="blue"></param>
+        public RGBValue(byte red, byte green, byte blue)
+        {
+            R = red;
+            G = green;
+            B = blue;
+        }
+    }
+}
