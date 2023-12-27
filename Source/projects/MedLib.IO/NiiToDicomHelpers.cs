@@ -505,4 +505,118 @@
             {
                 for (var index = 0; index < slice.Length; index++)
                 {
-                    slice[index] = ModelConstants.MaskBackgroundInt
+                    slice[index] = ModelConstants.MaskBackgroundIntensity;
+                }
+            }
+
+            foreach (var contourPerSlice in contours)
+            {
+                var indexZ = contourPerSlice.Key;
+                var offsetZ = indexZ * volume.DimXY;
+                ClearSlice();
+                foreach (var contour in contourPerSlice.Value)
+                {
+                    FillPolygon.Fill(contour.ContourPoints, slice,
+                        volume.DimX, volume.DimY, 1, 0, ModelConstants.MaskForegroundIntensity);
+                }
+                var true1 = 0;
+                var rendered1 = 0;
+                for (var index = 0; index < slice.Length; index++)
+                {
+                    if (volume[offsetZ + index] == ModelConstants.MaskForegroundIntensity)
+                    {
+                        true1++;
+                    }
+                    if (slice[index] == ModelConstants.MaskForegroundIntensity)
+                    {
+                        rendered1++;
+                    }
+                }
+                CheckContourRendering(true1, rendered1, maxAbsoluteDifference, maxRelativeDifference, $"Slice z={indexZ}");
+            };
+
+            return contours;
+        }
+
+        /// <summary>
+        /// Runs a check on the results of a mask-to-contour conversion. The caller starts out
+        /// with a binary mask, and converts that to contours. The contours are converted back to 
+        /// a binary mask. This process is lossy, and can have problems with holes in the original mask.
+        /// The check here tries to identify such problems, by comparing the number of foreground
+        /// voxels in the original mask (<paramref name="trueForeground"/>) and the number of foreground
+        /// voxels in the conversion result (<paramref name="renderedForeground"/>).
+        /// If the number of voxels is below the allowed absolute difference, the function returns.
+        /// If the absolute difference is exceeded, or no absolute difference is given, the
+        /// relative difference is checked.
+        /// </summary>
+        /// <param name="trueForeground">The number of foreground voxels in the original mask.</param>
+        /// <param name="renderedForeground">The number of foreground voxels after conversion to contours and back to mask.</param>
+        /// <param name="maxAbsoluteDifference">The maximum allowed difference in foreground voxels.</param>
+        /// <param name="maxRelativeDifference">The maximum allowed relative in foreground voxels (true - rendered)/true</param>
+        /// <param name="messagePrefix">A prefix for exception messages.</param>
+        public static void CheckContourRendering(int trueForeground, int renderedForeground,
+            int? maxAbsoluteDifference, double? maxRelativeDifference, string messagePrefix)
+        {
+            if (maxAbsoluteDifference.HasValue)
+            {
+                if (Math.Abs(trueForeground - renderedForeground) <= maxAbsoluteDifference.Value)
+                {
+                    return;
+                }
+            }
+
+            if (maxRelativeDifference.HasValue && trueForeground > 0)
+            {
+                var relativeDifference = Math.Abs(((float)trueForeground - renderedForeground) / trueForeground);
+                if (relativeDifference <= maxRelativeDifference.Value)
+                {
+                    return;
+                }
+
+                throw new InvalidOperationException($"{messagePrefix}: Mask has {trueForeground} foreground voxels, contour has {renderedForeground}. Absolute relative difference {Math.Round(relativeDifference, 3)} over threshold of {maxRelativeDifference.Value}.");
+            }
+        }
+
+        /// <summary>
+        /// Extracts a slice from the X/Y plane as a byte array.
+        /// </summary>
+        /// <param name="volume">The volume to extra the slice from.</param>
+        /// <param name="sliceIndex">Index of the slice.</param>
+        /// <returns>The extracted X/Y slice as a byte array.</returns>
+        private static byte[] ExtractSliceAsByteArray(Volume3D<short> volume, int sliceIndex)
+        {
+            if (sliceIndex < 0 || sliceIndex >= volume.DimZ)
+            {
+                throw new ArgumentException(nameof(sliceIndex));
+            }
+
+            var result = new byte[volume.DimXY * 2];
+            var resultIndex = 0;
+
+            for (var i = sliceIndex * volume.DimXY; i < (sliceIndex + 1) * volume.DimXY; i++)
+            {
+                var bytes = BitConverter.GetBytes(volume[i]);
+
+                result[resultIndex++] = bytes[0];
+                result[resultIndex++] = bytes[1];
+            }
+
+            return result;
+        }
+
+        private static string GuidToUidStringUsingStringAndParse(Guid value)
+        {
+            var guidBytes = string.Format("0{0:N}", value);
+            var bigInteger = BigInteger.Parse(guidBytes, NumberStyles.HexNumber);
+            return string.Format(CultureInfo.InvariantCulture, "2.25.{0}", bigInteger);
+        }
+
+        private static string CreateUidIfEmpty(string value)
+        {
+            return
+                string.IsNullOrWhiteSpace(value)
+                ? CreateUID().UID
+                : value;
+        }
+    }
+}
