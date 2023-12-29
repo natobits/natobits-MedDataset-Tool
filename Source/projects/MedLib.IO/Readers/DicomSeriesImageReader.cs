@@ -90,4 +90,120 @@
         /// <exception cref="InvalidOperationException">The decoded DICOM pixel data was not the expected length.</exception>
         private static unsafe void WriteSlice(Volume3D<short> volume, SliceInformation sliceInformation, uint sliceIndex)
         {
-            // Check the provided slice index exists in t
+            // Check the provided slice index exists in the volume bounds.
+            if (sliceIndex >= volume.DimZ)
+            {
+                throw new ArgumentException("Attempt to write slice outside the volume.", nameof(sliceIndex));
+            }
+
+            var data = GetUncompressedPixelData(sliceInformation.DicomDataset);
+
+            // Checks the uncompressed data is the correct length. 
+            if (data.Length < sizeof(short) * volume.DimXY)
+            {
+                throw new InvalidOperationException($"The decoded DICOM pixel data has insufficient length. Actual: {data.Length} Required: {sizeof(short) * volume.DimXY}");
+            }
+
+            if (sliceInformation.SignedPixelRepresentation)
+            {
+                WriteSignedSlice(data, volume, sliceIndex, (int)sliceInformation.HighBit, sliceInformation.RescaleIntercept, sliceInformation.RescaleSlope);
+            }
+            else
+            {
+                WriteUnsignedSlice(data, volume, sliceIndex, (int)sliceInformation.HighBit, sliceInformation.RescaleIntercept, sliceInformation.RescaleSlope);
+            }
+        }
+
+        /// <summary>
+        /// Writes a slice of signed data to the provided volume at the specified index.
+        /// Note: This method is unsafe and only uses checking when creating a short value out of each voxel (to check for overflows).
+        /// </summary>
+        /// <param name="data">The uncompressed signed pixel data.</param>
+        /// <param name="volume">The volume to write the slice into.</param>
+        /// <param name="sliceIndex">The index of the slice to write.</param>
+        /// <param name="highBit">The high bit value for reading the pixel information.</param>
+        /// <param name="rescaleIntercept">The rescale intercept of the pixel data.</param>
+        /// <param name="rescaleSlope">The rescale slope of the pixel data.</param>
+        private static unsafe void WriteSignedSlice(
+           byte[] data,
+           Volume3D<short> volume,
+           uint sliceIndex,
+           int highBit,
+           double rescaleIntercept,
+           double rescaleSlope)
+        {
+            fixed (short* volumePointer = volume.Array)
+            fixed (byte* dataPtr = data)
+            {
+                var slicePointer = volumePointer + volume.DimXY * sliceIndex;
+                var dataPointer = dataPtr;
+
+                for (var y = 0; y < volume.DimY; y++)
+                {
+                    for (var x = 0; x < volume.DimX; x++, dataPointer += 2, slicePointer++)
+                    {
+                        short value;
+
+                        // Force unchecked so conversions won't cause overflow exceptions regardless of project settings.
+                        unchecked
+                        {
+                            var bits = (ushort)(*dataPointer | *(dataPointer + 1) << 8);
+                            value = (short)(bits << (15 - highBit));  // mask
+                            value = (short)(value >> (15 - highBit)); // sign extend
+                        }
+
+                        // Force checked so out-of-range values will cause overflow exception.
+                        checked
+                        {
+                            *slicePointer = (short)Math.Round(rescaleSlope * value + rescaleIntercept);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Writes a slice of unsigned data to the provided volume at the specified index.
+        /// Note: This method is unsafe and only uses checking when creating a short value out of each voxel (to check for overflows).
+        /// </summary>
+        /// <param name="data">The uncompressed unsigned pixel data.</param>
+        /// <param name="volume">The volume to write the slice into.</param>
+        /// <param name="sliceIndex">The index of the slice to write.</param>
+        /// <param name="highBit">The high bit value for reading the pixel information.</param>
+        /// <param name="rescaleIntercept">The rescale intercept of the pixel data.</param>
+        /// <param name="rescaleSlope">The rescale slope of the pixel data.</param>
+        private static unsafe void WriteUnsignedSlice(
+           byte[] data,
+           Volume3D<short> volume,
+           uint sliceIndex,
+           int highBit,
+           double rescaleIntercept,
+           double rescaleSlope)
+        {
+            // Construct a binary mask such that all bit positions to the right of highbit and highbit 
+            // are masked in, and all bit positions to the left are masked out.
+            var mask = (2 << highBit) - 1;
+
+            fixed (short* volumePointer = volume.Array)
+            fixed (byte* dataPtr = data)
+            {
+                var slicePointer = volumePointer + volume.DimXY * sliceIndex;
+                var dataPointer = dataPtr;
+
+                for (var y = 0; y < volume.DimY; y++)
+                {
+                    for (var x = 0; x < volume.DimX; x++, dataPointer += 2, slicePointer++)
+                    {
+                        var value = (ushort)((*dataPointer | *(dataPointer + 1) << 8) & mask);
+
+                        // Force checked so out-of-range values will cause overflow exception.
+                        checked
+                        {
+                            *slicePointer = (short)Math.Round(rescaleSlope * value + rescaleIntercept);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
