@@ -45,4 +45,15 @@
             Assert.AreEqual(3, volume.Dimensions);
             Assert.AreEqual(524288, volume.Length);
             Assert.AreEqual(-250d, volume.Origin.X);
-            Assert.AreEqual(-250d, volume.O
+            Assert.AreEqual(-250d, volume.Origin.Y);
+            Assert.AreEqual(125.5d, volume.Origin.Z);
+            Assert.AreEqual(0.9765625, volume.SpacingX);
+            Assert.AreEqual(0.9765625, volume.SpacingY);
+            Assert.AreEqual(2.86102294921875, volume.VoxelVolume);
+            Assert.AreEqual(-1000, volume.Array[3453]);
+            Assert.AreEqual(-1000, volume.Array[8453]);
+            Assert.AreEqual(-1000, volume.Array[10453]);
+            Assert.AreEqual(-1000, volume.Array[100453]);
+        }
+    }
+}
