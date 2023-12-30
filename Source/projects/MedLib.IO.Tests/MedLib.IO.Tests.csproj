@@ -143,4 +143,5 @@
     <Error Condition="!Exists('..\..\thirdparty\packages\NUnit.3.12.0\build\NUnit.props')" Text="$([System.String]::Format('$(ErrorText)', '..\..\thirdparty\packages\NUnit.3.12.0\build\NUnit.props'))" />
     <Error Condition="!Exists('..\..\thirdparty\packages\NUnit3TestAdapter.3.16.1\build\net35\NUnit3TestAdapter.props')" Text="$([System.String]::Format('$(ErrorText)', '..\..\thirdparty\packages\NUnit3TestAdapter.3.16.1\build\net35\NUnit3TestAdapter.props'))" />
   </Target>
-  <Import Project="..\..\thirdparty\packages\fo-dicom.Desktop.4.0.5\build\net45\fo-dicom.Desktop.targets" Condition="Exists('..\..\thirdparty\packages\fo-dicom.Desktop.4.0.5\build\net4
+  <Import Project="..\..\thirdparty\packages\fo-dicom.Desktop.4.0.5\build\net45\fo-dicom.Desktop.targets" Condition="Exists('..\..\thirdparty\packages\fo-dicom.Desktop.4.0.5\build\net45\fo-dicom.Desktop.targets')" />
+</Project>
